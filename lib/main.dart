@@ -54,7 +54,6 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
   }
 
   Future<void> initClient() async {
-    // ဖုန်းစက်၏ Hardware UID ကို အမြဲတမ်း တစ်ခုတည်းသာ သိမ်းထားမည်
     final prefs = await SharedPreferences.getInstance();
     deviceUid = prefs.getString('phone_permanent_uid');
     if (deviceUid == null) {
@@ -67,7 +66,6 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
       deviceName = "${androidInfo.brand.toUpperCase()} ${androidInfo.model}";
     } catch (_) {}
 
-    // Background Foreground Service စတင်မည်
     const androidConfig = FlutterBackgroundAndroidConfig(
       notificationTitle: "Charging Monitor",
       notificationText: "Battery monitoring is active...",
@@ -117,8 +115,8 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
     }
   }
 
-  // App ကို နောက်ကွယ် Service ရော အကုန်လုံးပါ လုံးဝ အပြီးသတ် ပိတ်ချမည့် စနစ်
-  Future<void> terminateAppCompletely({bool flashFirst = false}) async {
+  // App ကို Background ရော Notification ပါ လုံးဝ ၁၀၀% တန်းပိတ်မည့် စနစ်
+  void forceKillApp({bool flashFirst = false}) async {
     // ၁။ Timer များကို ချက်ချင်း ရပ်မည်
     _timer?.cancel();
     _timer = null;
@@ -130,22 +128,17 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
       await startFlashingBeacon();
     }
 
-    // ၃။ Background Foreground Service နှင့် Notification ကို အပြီးတိုင် ဖျက်ချမည်
+    // ၃။ Background Foreground Service နှင့် Notification ကို ရပ်ရန် လှမ်းခေါ်မည် (မစောင့်ပါ)
     try {
-      if (FlutterBackground.isBackgroundExecutionEnabled) {
-        await FlutterBackground.disableBackgroundExecution();
-      }
+      FlutterBackground.disableBackgroundExecution();
     } catch (_) {}
 
-    // Android OS က Notification နှင့် Service ကို အပြီးသတ် ဖယ်ရှားနိုင်ရန် စက္ကန့်ဝက် စောင့်မည်
-    await Future.delayed(const Duration(milliseconds: 500));
-
-    // ၄။ Screen မှ ထွက်ပြီး Process တစ်ခုလုံးကို လုံးဝ သတ်ပစ်မည်
-    try {
-      await SystemNavigator.pop();
-    } catch (_) {}
-
-    exit(0);
+    // ၄။ Screen ကို ချက်ချင်း ပိတ်ချပြီး Process တစ်ခုလုံးကို အပြီးသတ် သတ်ပစ်မည်
+    SystemNavigator.pop();
+    
+    Future.delayed(const Duration(milliseconds: 250), () {
+      exit(0); // Android Process တစ်ခုလုံးကို လုံးဝ အပြီးသတ် သတ်ပစ်မည်
+    });
   }
 
   Future<void> sendUpdate() async {
@@ -190,13 +183,13 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
             
             // Excel မှ Pickup လုပ်လိုက်သောအခါ (၁၀ စက္ကန့် လင်းလက်ပြပြီး လုံးဝ ပိတ်မည်)
             if (data['command'] == 'alarm_and_close') {
-              await terminateAppCompletely(flashFirst: true);
+              forceKillApp(flashFirst: true);
               return;
             }
             
             // PC Monitor မှ ✕ (Delete) နှိပ်သောအခါ
             if (data['command'] == 'close_app') {
-              await terminateAppCompletely(flashFirst: false);
+              forceKillApp(flashFirst: false);
               return;
             }
 
@@ -285,63 +278,56 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
       statusText = "⚡ CHARGING";
     }
 
-    return PopScope(
-      canPop: false,
-      onPopInvokedWithResult: (didPop, result) {
-        if (didPop) return;
-        terminateAppCompletely(flashFirst: false);
-      },
-      child: Scaffold(
-        backgroundColor: Colors.black,
-        body: SafeArea(
-          child: Center(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24.0),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    assignedId ?? "WAITING FOR ID...",
-                    style: TextStyle(
-                      fontSize: 48,
-                      fontWeight: FontWeight.bold,
-                      color: assignedId != null ? Colors.yellowAccent : Colors.white38,
-                    ),
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: SafeArea(
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24.0),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  assignedId ?? "WAITING FOR ID...",
+                  style: TextStyle(
+                    fontSize: 48,
+                    fontWeight: FontWeight.bold,
+                    color: assignedId != null ? Colors.yellowAccent : Colors.white38,
                   ),
-                  const SizedBox(height: 8),
-                  Text(deviceName, style: const TextStyle(color: Colors.white70, fontSize: 16)),
-                  const SizedBox(height: 24),
-                  Text("$batteryLevel%", style: const TextStyle(fontSize: 72, fontWeight: FontWeight.bold, color: Colors.white)),
-                  const SizedBox(height: 10),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: statusColor.withOpacity(0.15),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: statusColor, width: 1.5),
-                    ),
-                    child: Text(statusText, style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: statusColor)),
+                ),
+                const SizedBox(height: 8),
+                Text(deviceName, style: const TextStyle(color: Colors.white70, fontSize: 16)),
+                const SizedBox(height: 24),
+                Text("$batteryLevel%", style: const TextStyle(fontSize: 72, fontWeight: FontWeight.bold, color: Colors.white)),
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: statusColor.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: statusColor, width: 1.5),
                   ),
-                  const SizedBox(height: 30),
-                  Text(syncStatus, style: const TextStyle(color: Colors.white30, fontSize: 12)),
-                  const SizedBox(height: 40),
+                  child: Text(statusText, style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: statusColor)),
+                ),
+                const SizedBox(height: 30),
+                Text(syncStatus, style: const TextStyle(color: Colors.white30, fontSize: 12)),
+                const SizedBox(height: 40),
 
-                  // EXIT APP ခလုတ်
-                  ElevatedButton.icon(
-                    onPressed: () => terminateAppCompletely(flashFirst: false),
-                    icon: const Icon(Icons.power_settings_new, color: Colors.white, size: 22),
-                    label: const Text(
-                      "EXIT APP (လုံးဝပိတ်မည်)",
-                      style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.red.shade800,
-                      padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
-                    ),
+                // EXIT APP ခလုတ် (နှိပ်လိုက်သည်နှင့် တန်းပိတ်မည်)
+                ElevatedButton.icon(
+                  onPressed: () => forceKillApp(flashFirst: false),
+                  icon: const Icon(Icons.power_settings_new, color: Colors.white, size: 24),
+                  label: const Text(
+                    "EXIT APP (လုံးဝပိတ်မည်)",
+                    style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
                   ),
-                ],
-              ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.red.shade800,
+                    padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                  ),
+                ),
+              ],
             ),
           ),
         ),
