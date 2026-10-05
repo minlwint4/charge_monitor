@@ -27,7 +27,6 @@ jobs:
 
       - name: Clean & Prepare Android Project
         run: |
-          # 1. ပက်ကေ့ချ် ဗားရှင်းများကို အလိုအလျောက် မြှင့်ပေးသည်
           python3 -c "
           p = 'pubspec.yaml'
           t = open(p).read()
@@ -36,11 +35,9 @@ jobs:
           open(p, 'w').write(t)
           "
 
-          # 2. Android Folder ကို အသန့်ပြန်ဆောက်သည်
           rm -rf android
           flutter create . --platforms=android
 
-          # 3. Permission နှင့် SDK ဗားရှင်းများကိုသာ သတ်မှတ်သည် (AarMetadata Hack မလိုတော့ပါ)
           python3 -c "
           import glob, os
 
@@ -53,8 +50,9 @@ jobs:
 
           for f in glob.glob('android/app/build.gradle*'):
               c = open(f).read()
-              c = c.replace('compileSdk = flutter.compileSdkVersion', 'compileSdk = 35')
-              c = c.replace('compileSdkVersion flutter.compileSdkVersion', 'compileSdkVersion 35')
+              # ဒီနေရာတွင် 36 သို့ ပြင်ဆင်ထားသည်
+              c = c.replace('compileSdk = flutter.compileSdkVersion', 'compileSdk = 36')
+              c = c.replace('compileSdkVersion flutter.compileSdkVersion', 'compileSdkVersion 36')
               c = c.replace('minSdk = flutter.minSdkVersion', 'minSdk = 21')
               c = c.replace('minSdkVersion flutter.minSdkVersion', 'minSdkVersion 21')
               open(f, 'w').write(c)
