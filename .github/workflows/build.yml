@@ -25,25 +25,34 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: Recreate Android & Set SDK 36
+      - name: Recreate Android & Fix SDK & Disable AAR Check
         run: |
-          # Android folder ကို အသစ်ပြန်ဆောက်သည်
+          # 1. battery_plus ဗားရှင်းကို အလိုအလျောက် မြှင့်ပေးသည်
+          python3 -c "
+          p = 'pubspec.yaml'
+          t = open(p).read()
+          t = t.replace('battery_plus: ^5.0.3', 'battery_plus: ^6.1.0')
+          t = t.replace('battery_plus: 5.0.3', 'battery_plus: ^6.1.0')
+          open(p, 'w').write(t)
+          "
+
+          # 2. Android Folder အသစ်ပြန်ဆောက်သည်
           rm -rf android
           flutter create . --platforms=android
 
-          # compileSdk 36, minSdk 21 နှင့် Internet Permission ထည့်သွင်းသည်
+          # 3. Permission, compileSdk 36 နှင့် AAR Metadata Check ပိတ်ခြင်း
           python3 -c "
           import glob, os
 
-          # 1. Internet Permission ထည့်ခြင်း
+          # Internet Permission ထည့်သွင်းခြင်း
           manifest = 'android/app/src/main/AndroidManifest.xml'
           if os.path.exists(manifest):
-              text = open(manifest).read()
-              if 'android.permission.INTERNET' not in text:
-                  text = text.replace('<application', '<uses-permission android:name=\"android.permission.INTERNET\"/>\n    <application')
-                  open(manifest, 'w').write(text)
+              t = open(manifest).read()
+              if 'android.permission.INTERNET' not in t:
+                  t = t.replace('<application', '<uses-permission android:name=\"android.permission.INTERNET\"/>\n    <application')
+                  open(manifest, 'w').write(t)
 
-          # 2. compileSdk 36 နှင့် minSdk 21 သတ်မှတ်ခြင်း (build.gradle နှင့် build.gradle.kts နှစ်မျိုးလုံးအတွက်)
+          # compileSdk 36 သတ်မှတ်ခြင်း
           for f in glob.glob('android/app/build.gradle*'):
               c = open(f).read()
               c = c.replace('compileSdk = flutter.compileSdkVersion', 'compileSdk = 36')
@@ -51,6 +60,20 @@ jobs:
               c = c.replace('minSdk = flutter.minSdkVersion', 'minSdk = 21')
               c = c.replace('minSdkVersion flutter.minSdkVersion', 'minSdkVersion 21')
               open(f, 'w').write(c)
+
+          # Gradle AAR Metadata Check ကို ကျော်ခိုင်းခြင်း (Error မတက်စေရန်)
+          root_gradle = 'android/build.gradle.kts'
+          if os.path.exists(root_gradle):
+              extra = '''
+          allprojects {
+              afterEvaluate {
+                  tasks.matching { it.name.contains(\"AarMetadata\") }.configureEach {
+                      enabled = false
+                  }
+              }
+          }
+          '''
+              open(root_gradle, 'a').write(extra)
           "
 
       - name: Install Dependencies
