@@ -8,7 +8,6 @@ import 'package:device_info_plus/device_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 import 'package:flutter_background/flutter_background.dart';
-import 'package:flutter_beep/flutter_beep.dart';
 import 'package:vibration/vibration.dart';
 
 void main() {
@@ -84,18 +83,15 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
     });
   }
 
-  // အသံနှင့်အတူ ၃ ကြိမ် တုန်ခါမည့် စနစ်
-  Future<void> playAlarmThreeTimes() async {
+  // အသံမပါဘဲ ၃ ကြိမ် သိသိသာသာ တုန်ခါမည့် စနစ်
+  Future<void> vibrateThreeTimes() async {
     bool hasVibrator = await Vibration.hasVibrator() ?? false;
     
-    for (int i = 0; i < 3; i++) {
-      FlutterBeep.beep(); // Beep အသံမြည်မည်
-      
-      if (hasVibrator) {
-        Vibration.vibrate(duration: 1000); // ၁ စက္ကန့် တုန်ခါမည်
+    if (hasVibrator) {
+      for (int i = 0; i < 3; i++) {
+        Vibration.vibrate(duration: 1500); // ၁.၅ စက္ကန့် ကြာကြာတုန်မည်
+        await Future.delayed(const Duration(milliseconds: 2500)); // တုန်ခါပြီး ၁ စက္ကန့် နားမည်
       }
-      
-      await Future.delayed(const Duration(seconds: 2)); 
     }
   }
 
@@ -137,12 +133,12 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
           if (response.statusCode == 200) {
             final data = jsonDecode(response.body);
             
-            // Excel မှ Dropoff လှမ်းလုပ်လိုက်သောအခါ 
+            // Excel မှ Dropoff လှမ်းလုပ်လိုက်သောအခါ (၃ ခါ တုန်ပြီး ပိတ်မည်)
             if (data['command'] == 'alarm_and_close') {
               final prefs = await SharedPreferences.getInstance();
               await prefs.remove('uid');
               
-              await playAlarmThreeTimes(); // အသံမြည်ပြီး ၃ ခါ တုန်မည်
+              await vibrateThreeTimes(); // ၃ ကြိမ် တုန်ခါမည်
               
               exit(0); 
             }
