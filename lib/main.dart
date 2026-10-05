@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart'; // Flutter မူရင်း SystemSound နှင့် Vibration အတွက်
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:battery_plus/battery_plus.dart';
 import 'package:device_info_plus/device_info_plus.dart';
@@ -83,13 +83,38 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
     });
   }
 
-  // Flutter မူရင်းပါပြီးသား စနစ်သတိပေးသံနှင့် တုန်ခါမှု ပြုလုပ်မည့် စနစ်
+  // အသံနှင့် တုန်ခါမှု ပြုလုပ်မည့် စနစ်
   Future<void> notifyAndClose() async {
     for (int i = 0; i < 3; i++) {
       SystemSound.play(SystemSoundType.alert);
       HapticFeedback.heavyImpact();
       await Future.delayed(const Duration(milliseconds: 700));
     }
+  }
+
+  // App ကို နောက်ကွယ် Service ရော Process ပါ လုံးဝ အပြီးသတ် ပိတ်ပစ်မည့် စနစ်
+  Future<void> shutdownApp() async {
+    // ၁။ Timer နှင့် Battery Listener များကို အရင် ရပ်တန့်မည်
+    _timer?.cancel();
+    _batteryStateSubscription?.cancel();
+
+    // ၂။ ID / UID ကို ဖျက်မည်
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('uid');
+
+    // ၃။ Background Service နှင့် Notification ကို အပြီးသတ် ရပ်တန့်မည် (အဓိက အပိုင်း)
+    try {
+      if (FlutterBackground.isBackgroundExecutionEnabled) {
+        await FlutterBackground.disableBackgroundExecution();
+      }
+    } catch (_) {}
+
+    // Service ရပ်သွားသည်အထိ ခေတ္တ စောင့်မည်
+    await Future.delayed(const Duration(milliseconds: 400));
+
+    // ၄။ Screen ပေါ်မှ ဖယ်ရှားပြီး App Process တစ်ခုလုံးကို အပြီးသတ် သတ်ပစ်မည်
+    await SystemNavigator.pop();
+    exit(0);
   }
 
   Future<void> sendUpdate() async {
@@ -130,21 +155,17 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
           if (response.statusCode == 200) {
             final data = jsonDecode(response.body);
             
-            // Excel မှ Dropoff လှမ်းလုပ်လိုက်သောအခါ
+            // Excel မှ Pickup လုပ်လိုက်သောအခါ (အချက်ပေးပြီး App ရော Background Service ပါ အပြီးသတ် ပိတ်မည်)
             if (data['command'] == 'alarm_and_close') {
-              final prefs = await SharedPreferences.getInstance();
-              await prefs.remove('uid');
-              
-              await notifyAndClose(); // အချက်ပေးပြီး App ပိတ်မည်
-              
-              exit(0); 
+              await notifyAndClose(); 
+              await shutdownApp();    
+              return;
             }
             
-            // PC မှ Delete (✕) နှိပ်သောအခါ
+            // PC Monitor ဝဘ်ဆိုက်မှ Delete (✕) နှိပ်သောအခါ
             if (data['command'] == 'close_app') {
-              final prefs = await SharedPreferences.getInstance();
-              await prefs.remove('uid');
-              exit(0); 
+              await shutdownApp();
+              return;
             }
 
             setState(() {
