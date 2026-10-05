@@ -1,12 +1,15 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    
+    <!-- Background Service Permissions -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
 
     <application
-        android:label="charge_monitor"
+        android:label="Charge Monitor"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
-        
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -20,11 +23,6 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
-
-        <!-- v2 embedding အတွက် ဒီနေရာတွင် ရှိရပါမည် -->
-        <meta-data
-            android:name="flutterEmbedding"
-            android:value="2" />
-            
+        <meta-data android:name="flutterEmbedding" android:value="2" />
     </application>
 </manifest>
