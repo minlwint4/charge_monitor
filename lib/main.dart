@@ -2,13 +2,13 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'; // Flutter မူရင်း SystemSound နှင့် Vibration အတွက်
 import 'package:http/http.dart' as http;
 import 'package:battery_plus/battery_plus.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 import 'package:flutter_background/flutter_background.dart';
-import 'package:vibration/vibration.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -83,15 +83,12 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
     });
   }
 
-  // အသံမပါဘဲ ၃ ကြိမ် သိသိသာသာ တုန်ခါမည့် စနစ်
-  Future<void> vibrateThreeTimes() async {
-    bool hasVibrator = await Vibration.hasVibrator() ?? false;
-    
-    if (hasVibrator) {
-      for (int i = 0; i < 3; i++) {
-        Vibration.vibrate(duration: 1500); // ၁.၅ စက္ကန့် ကြာကြာတုန်မည်
-        await Future.delayed(const Duration(milliseconds: 2500)); // တုန်ခါပြီး ၁ စက္ကန့် နားမည်
-      }
+  // Flutter မူရင်းပါပြီးသား စနစ်သတိပေးသံနှင့် တုန်ခါမှု ပြုလုပ်မည့် စနစ်
+  Future<void> notifyAndClose() async {
+    for (int i = 0; i < 3; i++) {
+      SystemSound.play(SystemSoundType.alert);
+      HapticFeedback.heavyImpact();
+      await Future.delayed(const Duration(milliseconds: 700));
     }
   }
 
@@ -133,12 +130,12 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
           if (response.statusCode == 200) {
             final data = jsonDecode(response.body);
             
-            // Excel မှ Dropoff လှမ်းလုပ်လိုက်သောအခါ (၃ ခါ တုန်ပြီး ပိတ်မည်)
+            // Excel မှ Dropoff လှမ်းလုပ်လိုက်သောအခါ
             if (data['command'] == 'alarm_and_close') {
               final prefs = await SharedPreferences.getInstance();
               await prefs.remove('uid');
               
-              await vibrateThreeTimes(); // ၃ ကြိမ် တုန်ခါမည်
+              await notifyAndClose(); // အချက်ပေးပြီး App ပိတ်မည်
               
               exit(0); 
             }
