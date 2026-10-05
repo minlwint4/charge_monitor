@@ -43,7 +43,7 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
   Timer? _timer;
   StreamSubscription<BatteryState>? _batteryStateSubscription;
 
-  // Visual Alert (မျက်နှာပြင် မီးတဖျတ်ဖျတ်လင်းမည့် စနစ်) အတွက် State များ
+  // Visual Alert အတွက် State များ
   bool isAlerting = false;
   Color flashColor = Colors.redAccent;
   Color flashTextColor = Colors.white;
@@ -88,14 +88,14 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
     });
   }
 
-  // မျက်နှာပြင်ပေါ်တွင် အနီရောင်နှင့် အဝါရောင် တဖျတ်ဖျတ် လင်းလက်စေမည့် စနစ် (၅ စက္ကန့်ကြာမည်)
+  // မျက်နှာပြင် မီးတဖျတ်ဖျတ် လင်းလက်ပြသမည့် စနစ် (၁၀ စက္ကန့် အပြည့်)
   Future<void> startFlashingBeacon() async {
     setState(() {
       isAlerting = true;
     });
 
-    // အကြိမ် ၂၀ ခန့် တဖျတ်ဖျတ် လင်းလက်ပြေးမည် (စုစုပေါင်း ၅ စက္ကန့်ခန့်)
-    for (int i = 0; i < 18; i++) {
+    // အကြိမ် ၃၀ ခန့် လင်းလက်ပြေးမည် (၃၃၀ ms x ၃၀ = ၁၀ စက္ကန့်ခန့် ကြာမြင့်မည်)
+    for (int i = 0; i < 30; i++) {
       if (!mounted) break;
       setState(() {
         if (i % 2 == 0) {
@@ -107,18 +107,41 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
         }
       });
 
-      // System Sound နှင့် Vibration ကိုပါ တွဲဖက် အချက်ပေးမည်
       SystemSound.play(SystemSoundType.alert);
       HapticFeedback.heavyImpact();
 
-      await Future.delayed(const Duration(milliseconds: 300));
+      await Future.delayed(const Duration(milliseconds: 330));
     }
   }
 
-  // App နှင့် Background Service ကို အပြီးသတ် ပိတ်ပစ်မည့် စနစ်
+  // Pickup အမိန့်ရရှိသည့်အခါ ဆောင်ရွက်မည့် လုပ်ငန်းစဉ်
+  Future<void> handlePickupCommand() async {
+    // ၁။ ဆာဗာသို့ ထပ်မံ ချိတ်ဆက်မည့် Timer နှင့် Event များကို ချက်ချင်း ရပ်ပစ်မည်
+    _timer?.cancel();
+    _timer = null;
+    _batteryStateSubscription?.cancel();
+    _batteryStateSubscription = null;
+
+    // ၂။ Background Foreground Service ကို ကြိုတင်ပိတ်မည် (Notification ပါ ချက်ချင်း ပျောက်သွားမည်)
+    try {
+      if (FlutterBackground.isBackgroundExecutionEnabled) {
+        await FlutterBackground.disableBackgroundExecution();
+      }
+    } catch (_) {}
+
+    // ၃။ (၁၀) စက္ကန့် အပြည့် မီးလင်းလက် အချက်ပြမည်
+    await startFlashingBeacon();
+
+    // ၄။ App Process တစ်ခုလုံးကို လုံးဝ အပြီးသတ် ပိတ်ချမည်
+    await shutdownApp();
+  }
+
+  // App ကို နောက်ကွယ် Service ရော Process ပါ လုံးဝ သတ်ပစ်မည့် စနစ်
   Future<void> shutdownApp() async {
     _timer?.cancel();
+    _timer = null;
     _batteryStateSubscription?.cancel();
+    _batteryStateSubscription = null;
 
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('uid');
@@ -129,13 +152,41 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
       }
     } catch (_) {}
 
-    await Future.delayed(const Duration(milliseconds: 400));
-    await SystemNavigator.pop();
+    await Future.delayed(const Duration(milliseconds: 500));
+    await SystemNavigator.pop(animated: true);
     exit(0);
   }
 
+  // Exit ခလုတ် နှိပ်သည့်အခါ ပြသမည့် Dialog
+  void _confirmExit() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E293B),
+        title: const Text("Exit App", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        content: const Text(
+          "App ကို နောက်ကွယ် Background Service ရော အကုန်လုံးပါ လုံးဝ ပိတ်မှာ သေချာပါသလား?",
+          style: TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text("မပိတ်ပါ (CANCEL)", style: TextStyle(color: Colors.white60)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+            onPressed: () {
+              Navigator.pop(ctx);
+              shutdownApp();
+            },
+            child: const Text("ပိတ်မည် (EXIT)", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> sendUpdate() async {
-    // Alert ပြနေစဉ်အတွင်း update မပို့တော့ပါ
     if (isAlerting) return;
 
     try {
@@ -175,14 +226,13 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
           if (response.statusCode == 200) {
             final data = jsonDecode(response.body);
             
-            // Excel မှ Pickup လုပ်လိုက်သောအခါ
+            // Excel မှ Pickup လုပ်လိုက်သောအခါ (၁၀ စက္ကန့် လင်းလက်ပြပြီး လုံးဝ ပိတ်မည်)
             if (data['command'] == 'alarm_and_close') {
-              await startFlashingBeacon(); // မျက်နှာပြင် တဖျတ်ဖျတ် လင်းပြမည်
-              await shutdownApp();         // ပြီးလျှင် App ကို အပြီး ပိတ်မည်
+              await handlePickupCommand();
               return;
             }
             
-            // PC Monitor မှ ✕ (Delete) နှိပ်သောအခါ
+            // PC Dashboard မှ ✕ (Delete) နှိပ်သောအခါ
             if (data['command'] == 'close_app') {
               await shutdownApp();
               return;
@@ -220,7 +270,7 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
 
   @override
   Widget build(BuildContext context) {
-    // Pickup လုပ်ချိန်တွင် ပြသမည့် Visual Alert Screen (အရေးပေါ် မီးရောင်ပုံစံ)
+    // Pickup လုပ်ချိန်တွင် ပြသမည့် Visual Alert Screen (၁၀ စက္ကန့် မီးရောင်ပုံစံ)
     if (isAlerting) {
       return Scaffold(
         backgroundColor: flashColor,
@@ -229,12 +279,12 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.notifications_active, size: 100, color: flashTextColor),
+                Icon(Icons.notifications_active, size: 110, color: flashTextColor),
                 const SizedBox(height: 20),
                 Text(
                   assignedId ?? "PICKUP",
                   style: TextStyle(
-                    fontSize: 80,
+                    fontSize: 84,
                     fontWeight: FontWeight.w900,
                     color: flashTextColor,
                     letterSpacing: 2,
@@ -242,15 +292,15 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
                 ),
                 const SizedBox(height: 15),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
                   decoration: BoxDecoration(
                     color: flashTextColor.withOpacity(0.2),
                     borderRadius: BorderRadius.circular(30),
                   ),
                   child: Text(
-                    "⚡ PICKUP READY ⚡",
+                    "⚡ PICKUP READY (10s) ⚡",
                     style: TextStyle(
-                      fontSize: 24,
+                      fontSize: 22,
                       fontWeight: FontWeight.bold,
                       color: flashTextColor,
                     ),
@@ -286,20 +336,45 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
               children: [
                 Text(
                   assignedId ?? "WAITING FOR ID...",
-                  style: TextStyle(fontSize: 48, fontWeight: FontWeight.bold, color: assignedId != null ? Colors.yellowAccent : Colors.white38),
+                  style: TextStyle(
+                    fontSize: 48,
+                    fontWeight: FontWeight.bold,
+                    color: assignedId != null ? Colors.yellowAccent : Colors.white38,
+                  ),
                 ),
-                const SizedBox(height: 10),
+                const SizedBox(height: 8),
                 Text(deviceName, style: const TextStyle(color: Colors.white70, fontSize: 16)),
-                const SizedBox(height: 30),
+                const SizedBox(height: 24),
                 Text("$batteryLevel%", style: const TextStyle(fontSize: 72, fontWeight: FontWeight.bold, color: Colors.white)),
                 const SizedBox(height: 10),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  decoration: BoxDecoration(color: statusColor.withOpacity(0.15), borderRadius: BorderRadius.circular(20), border: Border.all(color: statusColor, width: 1.5)),
+                  decoration: BoxDecoration(
+                    color: statusColor.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: statusColor, width: 1.5),
+                  ),
                   child: Text(statusText, style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: statusColor)),
                 ),
-                const SizedBox(height: 40),
+                const SizedBox(height: 30),
                 Text(syncStatus, style: const TextStyle(color: Colors.white30, fontSize: 12)),
+                const SizedBox(height: 40),
+
+                // App အား လုံးဝ အပြီးသတ် ပိတ်ရန် EXIT ခလုတ်
+                OutlinedButton.icon(
+                  onPressed: _confirmExit,
+                  icon: const Icon(Icons.power_settings_new, color: Colors.redAccent, size: 22),
+                  label: const Text(
+                    "EXIT APP",
+                    style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: Colors.redAccent, width: 1.5),
+                    padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                    backgroundColor: Colors.redAccent.withOpacity(0.1),
+                  ),
+                ),
               ],
             ),
           ),
