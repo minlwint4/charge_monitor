@@ -43,11 +43,10 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
   }
 
   Future<void> initClient() async {
-    // Background Service ဖွင့်ခြင်း
+    // Background Service ဖွင့်ခြင်း (Error တက်သော စာကြောင်း ဖယ်ရှားထားသည်)
     const androidConfig = FlutterBackgroundAndroidConfig(
       notificationTitle: "Charging Monitor",
       notificationText: "Battery data syncing in background...",
-      notificationImportance: AndroidNotificationImportance.min,
       notificationIcon: AndroidResource(name: 'ic_launcher', defType: 'mipmap'),
     );
     bool hasPermissions = await FlutterBackground.initialize(androidConfig: androidConfig);
@@ -55,7 +54,6 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
       await FlutterBackground.enableBackgroundExecution();
     }
 
-    // UID နှင့် ဖုန်းအမည် ရယူခြင်း
     final prefs = await SharedPreferences.getInstance();
     deviceUid = prefs.getString('uid');
     if (deviceUid == null) {
@@ -70,13 +68,12 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
 
     await sendUpdate();
 
-    // ၁။ ၁၅ စက္ကန့် တစ်ကြိမ် ပုံမှန် ပို့မည့် Timer (Refresh time ပြင်ဆင်ပြီး)
+    // ၁၅ စက္ကန့် တစ်ကြိမ် Data ပို့ရန်
     _timer = Timer.periodic(const Duration(seconds: 15), (timer) {
       sendUpdate();
     });
 
-    // ၂။ ကြိုးဖြုတ်/တပ်ချိန်ကို စောင့်ကြည့်သည့် Listener (အရေးကြီးဆုံးအပိုင်း)
-    // CPU အိပ်နေရင်တောင် ကြိုးဖြုတ်လိုက်တဲ့ အခိုက်အတန့်မှာ App ကို နိုးပြီး Data ချက်ချင်းပို့ပေးပါမည်
+    // ကြိုးဖြုတ်/တပ်ချိန်ကို စောင့်ကြည့်ပြီး ချက်ချင်း Data ပို့ရန်
     _batteryStateSubscription = _battery.onBatteryStateChanged.listen((BatteryState state) {
       sendUpdate();
     });
