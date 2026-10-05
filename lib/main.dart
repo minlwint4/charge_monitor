@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
@@ -42,7 +43,7 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
   Timer? _timer;
   StreamSubscription<BatteryState>? _batteryStateSubscription;
 
-  bool isMonitoring = true;
+  // Visual Alert (၁၀ စက္ကန့် မီးရောင်) အတွက် State များ
   bool isAlerting = false;
   Color flashColor = Colors.redAccent;
   Color flashTextColor = Colors.white;
@@ -50,17 +51,16 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
   @override
   void initState() {
     super.initState();
-    checkAndInit();
+    initClient();
   }
 
-  Future<void> checkAndInit() async {
+  Future<void> initClient() async {
+    // ၁။ ဖုန်းတိုင်းတွင် အမြဲတမ်း UID တစ်ခုတည်းသာ ရှိစေမည် (ဘယ်တော့မှ မဖျက်ပါ)
     final prefs = await SharedPreferences.getInstance();
-    
-    // ၁။ UID ကို အမြဲတမ်း တစ်ခုတည်းသာ ထားရှိမည် (ဘယ်တော့မှ မဖျက်ပါ)
-    deviceUid = prefs.getString('uid');
+    deviceUid = prefs.getString('phone_permanent_uid');
     if (deviceUid == null) {
       deviceUid = const Uuid().v4().substring(0, 8);
-      await prefs.setString('uid', deviceUid!);
+      await prefs.setString('phone_permanent_uid', deviceUid!);
     }
 
     try {
@@ -68,50 +68,32 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
       deviceName = "${androidInfo.brand.toUpperCase()} ${androidInfo.model}";
     } catch (_) {}
 
-    // အကယ်၍ App ကို ရပ်တန့်ထားခဲ့ပါက နောက်ကွယ်မှ အလိုအလျောက် မ run စေရန် တားဆီးမည်
-    isMonitoring = prefs.getBool('is_monitoring') ?? true;
-    if (!isMonitoring) {
-      setState(() {
-        syncStatus = "Service Stopped (Inactive)";
-      });
-      return;
-    }
-
-    await startMonitoringService();
-  }
-
-  Future<void> startMonitoringService() async {
+    // ၂။ Background Foreground Service စတင်မည်
     const androidConfig = FlutterBackgroundAndroidConfig(
       notificationTitle: "Charging Monitor",
-      notificationText: "Battery data syncing in background...",
+      notificationText: "Battery monitoring is active...",
       notificationIcon: AndroidResource(name: 'ic_launcher', defType: 'mipmap'),
     );
-    bool hasPermissions = await FlutterBackground.initialize(androidConfig: androidConfig);
-    if (hasPermissions) {
-      await FlutterBackground.enableBackgroundExecution();
-    }
-
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('is_monitoring', true);
-
-    setState(() {
-      isMonitoring = true;
-    });
+    
+    try {
+      bool hasPermissions = await FlutterBackground.initialize(androidConfig: androidConfig);
+      if (hasPermissions) {
+        await FlutterBackground.enableBackgroundExecution();
+      }
+    } catch (_) {}
 
     await sendUpdate();
 
-    _timer?.cancel();
     _timer = Timer.periodic(const Duration(seconds: 15), (timer) {
       sendUpdate();
     });
 
-    _batteryStateSubscription?.cancel();
     _batteryStateSubscription = _battery.onBatteryStateChanged.listen((BatteryState state) {
       sendUpdate();
     });
   }
 
-  // ၁၀ စက္ကန့် အပြည့် မျက်နှာပြင် မီးတဖျတ်ဖျတ် လင်းလက်ပြသမည့် စနစ်
+  // မျက်နှာပြင် မီးတဖျတ်ဖျတ် လင်းလက်ပြသမည့် စနစ် (၁၀ စက္ကန့် အပြည့်)
   Future<void> startFlashingBeacon() async {
     setState(() {
       isAlerting = true;
@@ -136,37 +118,37 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
     }
   }
 
-  // App ကို နောက်ကွယ် Service ရော အကုန်လုံးပါ အပြီးသတ် ပိတ်ပစ်မည့် စနစ်
-  Future<void> stopAndExitApp({bool flashFirst = false}) async {
-    // Timer များနှင့် Background Listener များကို ချက်ချင်း ရပ်တန့်မည်
+  // App ကို Background Service ၊ Notification ရော Process ပါ လုံးဝ အပြီးသတ် ပိတ်ချမည့် စနစ်
+  Future<void> terminateAppCompletely({bool flashFirst = false}) async {
+    // ၁။ Timer နှင့် Event Listener များကို ချက်ချင်း ရပ်တန့်မည်
     _timer?.cancel();
     _timer = null;
     _batteryStateSubscription?.cancel();
     _batteryStateSubscription = null;
 
-    // အရေးကြီးဆုံး: App ကို ရပ်တန့်ထားသည်ဟု အမှတ်အသား ပြုလုပ်မည် (Auto-restart မဖြစ်စေရန်)
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('is_monitoring', false);
-
-    // Background Service နှင့် Notification ကို အပြီးသတ် ဖြုတ်ချမည်
-    try {
-      if (FlutterBackground.isBackgroundExecutionEnabled) {
-        await FlutterBackground.disableBackgroundExecution();
-      }
-    } catch (_) {}
-
+    // ၂။ Pickup အမိန့်ဖြစ်ပါက ၁၀ စက္ကန့် မီးရောင် အချက်ပြမည်
     if (flashFirst) {
-      await startFlashingBeacon(); // Pickup ဖြစ်ပါက ၁၀ စက္ကန့် မီးလင်းပြမည်
+      await startFlashingBeacon();
     }
 
-    await Future.delayed(const Duration(milliseconds: 500));
-    
-    // Android စနစ်နှင့် အကိုက်ညီဆုံးဖြစ်သော SystemNavigator ဖြင့် ပိတ်သိမ်းမည်
-    await SystemNavigator.pop(animated: true);
+    // ၃။ Background Foreground Service နှင့် Notification ကို အပြီးတိုင် ဖျက်ချမည်
+    try {
+      await FlutterBackground.disableBackgroundExecution();
+    } catch (_) {}
+
+    // Android OS က Service ကို Unbind လုပ်ပြီး Notification ဖြုတ်ချနိုင်ရန် ခေတ္တ စောင့်မည်
+    await Future.delayed(const Duration(milliseconds: 600));
+
+    // ၄။ SystemNavigator ဖြင့် မျက်နှာပြင်မှ ဖယ်ရှားပြီး exit(0) ဖြင့် Process ကို လုံးဝ သတ်ပစ်မည်
+    try {
+      await SystemNavigator.pop();
+    } catch (_) {}
+
+    exit(0); // App ကို လုံးဝ (၁၀၀%) အပြီးသတ် သတ်ပစ်မည်
   }
 
   Future<void> sendUpdate() async {
-    if (isAlerting || !isMonitoring) return;
+    if (isAlerting) return;
 
     try {
       final level = await _battery.batteryLevel;
@@ -205,15 +187,15 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
           if (response.statusCode == 200) {
             final data = jsonDecode(response.body);
             
-            // Excel မှ Pickup လုပ်လိုက်သောအခါ (၁၀ စက္ကန့် လင်းလက်ပြပြီး အပြီးသတ် ပိတ်မည်)
+            // Excel မှ Pickup လုပ်လိုက်သောအခါ (၁၀ စက္ကန့် လင်းလက်ပြပြီး လုံးဝ ပိတ်မည်)
             if (data['command'] == 'alarm_and_close') {
-              await stopAndExitApp(flashFirst: true);
+              await terminateAppCompletely(flashFirst: true);
               return;
             }
             
             // PC Monitor မှ ✕ (Delete) နှိပ်သောအခါ
             if (data['command'] == 'close_app') {
-              await stopAndExitApp(flashFirst: false);
+              await terminateAppCompletely(flashFirst: false);
               return;
             }
 
@@ -303,56 +285,64 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
       statusText = "⚡ CHARGING";
     }
 
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: SafeArea(
-        child: Center(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24.0),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  assignedId ?? "WAITING FOR ID...",
-                  style: TextStyle(
-                    fontSize: 48,
-                    fontWeight: FontWeight.bold,
-                    color: assignedId != null ? Colors.yellowAccent : Colors.white38,
+    // ဖုန်း၏ Back ခလုတ် နှိပ်လျှင်လည်း အလိုအလျောက် သန့်ရှင်းစွာ ပိတ်ပေးမည့် စနစ်
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        terminateAppCompletely(flashFirst: false);
+      },
+      child: Scaffold(
+        backgroundColor: Colors.black,
+        body: SafeArea(
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24.0),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    assignedId ?? "WAITING FOR ID...",
+                    style: TextStyle(
+                      fontSize: 48,
+                      fontWeight: FontWeight.bold,
+                      color: assignedId != null ? Colors.yellowAccent : Colors.white38,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 8),
-                Text(deviceName, style: const TextStyle(color: Colors.white70, fontSize: 16)),
-                const SizedBox(height: 24),
-                Text("$batteryLevel%", style: const TextStyle(fontSize: 72, fontWeight: FontWeight.bold, color: Colors.white)),
-                const SizedBox(height: 10),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: statusColor.withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: statusColor, width: 1.5),
+                  const SizedBox(height: 8),
+                  Text(deviceName, style: const TextStyle(color: Colors.white70, fontSize: 16)),
+                  const SizedBox(height: 24),
+                  Text("$batteryLevel%", style: const TextStyle(fontSize: 72, fontWeight: FontWeight.bold, color: Colors.white)),
+                  const SizedBox(height: 10),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: statusColor.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: statusColor, width: 1.5),
+                    ),
+                    child: Text(statusText, style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: statusColor)),
                   ),
-                  child: Text(statusText, style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: statusColor)),
-                ),
-                const SizedBox(height: 30),
-                Text(syncStatus, style: const TextStyle(color: Colors.white30, fontSize: 12)),
-                const SizedBox(height: 40),
+                  const SizedBox(height: 30),
+                  Text(syncStatus, style: const TextStyle(color: Colors.white30, fontSize: 12)),
+                  const SizedBox(height: 40),
 
-                // App အား နောက်ကွယ် Service ရော အကုန်လုံးပါ လုံးဝ ပိတ်ချမည့် EXIT ခလုတ်
-                ElevatedButton.icon(
-                  onPressed: () => stopAndExitApp(flashFirst: false),
-                  icon: const Icon(Icons.power_settings_new, color: Colors.white, size: 22),
-                  label: const Text(
-                    "EXIT APP (လုံးဝပိတ်မည်)",
-                    style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                  // App အား Notification ရော Background Process ပါ လုံးဝ ပိတ်ချမည့် ခလုတ်
+                  ElevatedButton.icon(
+                    onPressed: () => terminateAppCompletely(flashFirst: false),
+                    icon: const Icon(Icons.power_settings_new, color: Colors.white, size: 22),
+                    label: const Text(
+                      "EXIT APP (လုံးဝပိတ်မည်)",
+                      style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.red.shade800,
+                      padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                    ),
                   ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.red.shade800,
-                    padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
