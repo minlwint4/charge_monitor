@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io'; // exit(0) အတွက် ထည့်သွင်းထားသည်
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:battery_plus/battery_plus.dart';
@@ -24,7 +24,14 @@ class BatteryMonitorClient extends StatefulWidget {
 }
 
 class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
-  final String serverUrl = "http://10.10.10.10:5000/api/update";
+  // IP နှစ်ခုလုံးကို ထည့်သွင်းထားပါသည်
+  final List<String> serverUrls = [
+    "http://10.10.10.10:5000/api/update",
+    "http://192.168.1.50:5000/api/update"
+  ];
+  
+  int workingUrlIndex = 0; // အလုပ်လုပ်နေသော IP ကို မှတ်ထားရန်
+  
   final Battery _battery = Battery();
   
   String? deviceUid;
@@ -94,34 +101,56 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
         currentStatus = status;
       });
 
-      final response = await http.post(
-        Uri.parse(serverUrl),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'uid': deviceUid,
-          'name': deviceName,
-          'battery': level,
-          'status': status,
-        }),
-      ).timeout(const Duration(seconds: 4));
+      bool isConnected = false;
 
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        
-        // PC မှ ဖယ်ရှားလိုက်လျှင် App ကို အလိုအလျောက် ပိတ်မည့်စနစ်
-        if (data['command'] == 'close_app') {
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.remove('uid'); // UID အဟောင်းကို ဖျက်မည်
-          exit(0); // App ကို ချက်ချင်း ပိတ်ချမည် (Background အပါအဝင် အကုန်သေသွားမည်)
+      // IP များကို တစ်ခုပြီးတစ်ခု လှည့်ပတ် စမ်းသပ်မည့်စနစ်
+      for (int i = 0; i < serverUrls.length; i++) {
+        int tryIndex = (workingUrlIndex + i) % serverUrls.length;
+        String tryUrl = serverUrls[tryIndex];
+
+        try {
+          final response = await http.post(
+            Uri.parse(tryUrl),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'uid': deviceUid,
+              'name': deviceName,
+              'battery': level,
+              'status': status,
+            }),
+          ).timeout(const Duration(seconds: 3)); // ၃ စက္ကန့်စောင့်၍ မရပါက နောက် IP သို့ ပြောင်းမည်
+
+          if (response.statusCode == 200) {
+            final data = jsonDecode(response.body);
+            
+            if (data['command'] == 'close_app') {
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.remove('uid');
+              exit(0); 
+            }
+
+            setState(() {
+              assignedId = data['assigned_id'];
+              // မည်သည့် IP ဖြင့် ချိတ်ဆက်ထားကြောင်း မျက်နှာပြင်တွင် ဖော်ပြပေးမည်
+              syncStatus = "Connected (${tryUrl.split('/')[2]})"; 
+            });
+            
+            workingUrlIndex = tryIndex; // ချိတ်ဆက်အောင်မြင်သော IP ကို မှတ်ထားမည်
+            isConnected = true;
+            break; // အောင်မြင်ပါက Loop ထဲမှ ထွက်မည်
+          }
+        } catch (e) {
+          // ဤ IP ဖြင့် ချိတ်မရပါက နောက်တစ်ခုသို့ ဆက်သွားမည်
+          continue; 
         }
-
-        setState(() {
-          assignedId = data['assigned_id'];
-          syncStatus = "Connected (OK)";
-        });
       }
+
+      if (!isConnected) {
+        setState(() { syncStatus = "Connection Lost / Retrying..."; });
+      }
+      
     } catch (e) {
-      setState(() { syncStatus = "Connection Lost / Retrying..."; });
+      setState(() { syncStatus = "Error updating data"; });
     }
   }
 
