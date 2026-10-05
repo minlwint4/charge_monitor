@@ -25,7 +25,6 @@ class BatteryMonitorClient extends StatefulWidget {
 }
 
 class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
-  // Native Android Channel (Tab ဆွဲပိတ်သည့် စနစ်ကို လှမ်းခေါ်ရန်)
   static const platform = MethodChannel('com.example.charge_monitor/app_control');
 
   final List<String> serverUrls = [
@@ -93,11 +92,16 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
     });
   }
 
-  // ၁၀ စက္ကန့် အပြည့် မီးရောင်ပြသမည့် စနစ်
+  // ၁၀ စက္ကန့် အပြည့် မီးရောင်ပြပြီး Alarm မြည်မည့် စနစ်
   Future<void> startFlashingBeacon() async {
     setState(() {
       isAlerting = true;
     });
+
+    // Android Native Alarm အသံကို စတင်မြည်စေမည်
+    try {
+      await platform.invokeMethod('startAlarm');
+    } catch (_) {}
 
     for (int i = 0; i < 30; i++) {
       if (!mounted) break;
@@ -111,14 +115,17 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
         }
       });
 
-      SystemSound.play(SystemSoundType.alert);
       HapticFeedback.heavyImpact();
-
       await Future.delayed(const Duration(milliseconds: 330));
     }
+
+    // အသံ ရပ်တန့်မည်
+    try {
+      await platform.invokeMethod('stopAlarm');
+    } catch (_) {}
   }
 
-  // Tab ကို လက်ဖြင့် ဆွဲပိတ်လိုက်သကဲ့သို့ Process ရော Service ပါ အပြီးသတ် သတ်မည့် စနစ်
+  // App ကို အပြီးသတ် သတ်ပစ်မည့် စနစ်
   Future<void> exitAppLikeSwipe({bool flashFirst = false}) async {
     _timer?.cancel();
     _timer = null;
@@ -177,7 +184,7 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
           if (response.statusCode == 200) {
             final data = jsonDecode(response.body);
             
-            // Excel မှ Pickup လုပ်လိုက်သောအခါ (၁၀ စက္ကန့် မီးရောင်ပြပြီး လုံးဝ သတ်မည်)
+            // Excel မှ Pickup လုပ်လိုက်သောအခါ (မီးလင်း + Alarm ၁၀ စက္ကန့် မြည်ပြီးမှ လုံးဝ သတ်မည်)
             if (data['command'] == 'alarm_and_close') {
               await exitAppLikeSwipe(flashFirst: true);
               return;
@@ -274,7 +281,6 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
       statusText = "⚡ CHARGING";
     }
 
-    // ဖုန်း၏ Back ခလုတ် နှိပ်လျှင်လည်း Tab ဆွဲပိတ်သကဲ့သို့ တန်းသတ်မည်
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, result) {
