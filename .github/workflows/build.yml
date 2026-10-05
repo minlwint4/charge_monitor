@@ -25,32 +25,12 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: Clean & Prepare Android Project
+      - name: Fix Android SDK to 36
         run: |
           python3 -c "
-          p = 'pubspec.yaml'
-          t = open(p).read()
-          t = t.replace('battery_plus: ^5.0.3', 'battery_plus: ^6.1.0')
-          t = t.replace('battery_plus: 5.0.3', 'battery_plus: ^6.1.0')
-          open(p, 'w').write(t)
-          "
-
-          rm -rf android
-          flutter create . --platforms=android
-
-          python3 -c "
           import glob, os
-
-          manifest = 'android/app/src/main/AndroidManifest.xml'
-          if os.path.exists(manifest):
-              t = open(manifest).read()
-              if 'android.permission.INTERNET' not in t:
-                  t = t.replace('<application', '<uses-permission android:name=\"android.permission.INTERNET\"/>\n    <application')
-                  open(manifest, 'w').write(t)
-
           for f in glob.glob('android/app/build.gradle*'):
               c = open(f).read()
-              # ဒီနေရာတွင် 36 သို့ ပြင်ဆင်ထားသည်
               c = c.replace('compileSdk = flutter.compileSdkVersion', 'compileSdk = 36')
               c = c.replace('compileSdkVersion flutter.compileSdkVersion', 'compileSdkVersion 36')
               c = c.replace('minSdk = flutter.minSdkVersion', 'minSdk = 21')
@@ -61,11 +41,11 @@ jobs:
       - name: Install Dependencies
         run: flutter pub get
 
-      - name: Build APK (Split ABI)
-        run: flutter build apk --split-per-abi
+      - name: Build Universal APK
+        run: flutter build apk
 
       - name: Upload APK Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: battery-monitor-apks
-          path: build/app/outputs/flutter-apk/*.apk
+          name: battery-monitor-universal-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
