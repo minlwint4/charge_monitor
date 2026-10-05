@@ -27,15 +27,14 @@ jobs:
 
       - name: Clean & Prepare Android Project
         run: |
-          # 1. Android Folder အဟောင်းကိုဖျက်၍ V2 Embedding အသစ်ဖြင့် ပြန်ဆောက်သည်
+          # Android Folder အဟောင်းကိုဖျက်၍ V2 Embedding အသစ်ဖြင့် ပြန်ဆောက်သည်
           rm -rf android
           flutter create . --platforms=android
 
-          # 2. Permissions နှင့် SDK ဗားရှင်းများကို သတ်မှတ်သည်
+          # Permission များသာ ထည့်သွင်းပြီး SDK Version အဟောင်းများကို အတင်းမပြောင်းတော့ပါ (Flutter ပုံမှန်စံနှုန်းအတိုင်းသာ ထားမည်)
           python3 -c "
-          import glob, os
+          import os
 
-          # Permissions (Internet, WakeLock, Foreground Service) ထည့်သွင်းခြင်း
           manifest = 'android/app/src/main/AndroidManifest.xml'
           if os.path.exists(manifest):
               t = open(manifest).read()
@@ -43,15 +42,6 @@ jobs:
                   permissions = '<uses-permission android:name=\"android.permission.INTERNET\"/>\n    <uses-permission android:name=\"android.permission.WAKE_LOCK\"/>\n    <uses-permission android:name=\"android.permission.FOREGROUND_SERVICE\"/>\n    <application'
                   t = t.replace('<application', permissions)
                   open(manifest, 'w').write(t)
-
-          # compileSdk 36 နှင့် minSdk 19 သို့ ပြောင်းလဲခြင်း (အရေးကြီးဆုံး အပိုင်း)
-          for f in glob.glob('android/app/build.gradle*'):
-              c = open(f).read()
-              c = c.replace('compileSdk = flutter.compileSdkVersion', 'compileSdk = 36')
-              c = c.replace('compileSdkVersion flutter.compileSdkVersion', 'compileSdkVersion 36')
-              c = c.replace('minSdk = flutter.minSdkVersion', 'minSdk = 19')
-              c = c.replace('minSdkVersion flutter.minSdkVersion', 'minSdkVersion 19')
-              open(f, 'w').write(c)
           "
 
       - name: Install Dependencies
