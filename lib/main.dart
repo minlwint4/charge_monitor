@@ -8,7 +8,7 @@ import 'package:device_info_plus/device_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 import 'package:flutter_background/flutter_background.dart';
-import 'package:audioplayers/audioplayers.dart';
+import 'package:flutter_beep/flutter_beep.dart';
 import 'package:vibration/vibration.dart';
 
 void main() {
@@ -84,23 +84,19 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
     });
   }
 
+  // အသံနှင့်အတူ ၃ ကြိမ် တုန်ခါမည့် စနစ်
   Future<void> playAlarmThreeTimes() async {
-    final player = AudioPlayer();
     bool hasVibrator = await Vibration.hasVibrator() ?? false;
     
-    // ၃ ခါ ကျယ်ကျယ်မြည်စေရန်
     for (int i = 0; i < 3; i++) {
-      // ဖုန်း၏ မူလ Alarm အသံကို ကျယ်ကျယ်ဖွင့်မည်
-      await player.play(DeviceFileSource('/system/media/audio/alarms/Argon.ogg')); 
+      FlutterBeep.beep(); // Beep အသံမြည်မည်
       
       if (hasVibrator) {
-        Vibration.vibrate(duration: 1000); // ၁ စက္ကန့် တုန်မည်
+        Vibration.vibrate(duration: 1000); // ၁ စက္ကန့် တုန်ခါမည်
       }
       
-      await Future.delayed(const Duration(seconds: 2)); // ၂ စက္ကန့် စောင့်မည်
+      await Future.delayed(const Duration(seconds: 2)); 
     }
-    
-    await player.stop();
   }
 
   Future<void> sendUpdate() async {
@@ -141,14 +137,14 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
           if (response.statusCode == 200) {
             final data = jsonDecode(response.body);
             
-            // Excel မှ Dropoff လှမ်းလုပ်လိုက်သောအခါ (အသံ ၃ ခါမြည်ပြီး ပိတ်မည်)
+            // Excel မှ Dropoff လှမ်းလုပ်လိုက်သောအခါ 
             if (data['command'] == 'alarm_and_close') {
               final prefs = await SharedPreferences.getInstance();
               await prefs.remove('uid');
               
-              await playAlarmThreeTimes(); // အသံမြည်မည့် Function ကို ခေါ်မည်
+              await playAlarmThreeTimes(); // အသံမြည်ပြီး ၃ ခါ တုန်မည်
               
-              exit(0); // ပြီးတာနဲ့ App ပိတ်ချမည်
+              exit(0); 
             }
             
             // PC မှ Delete (✕) နှိပ်သောအခါ
