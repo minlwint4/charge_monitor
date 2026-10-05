@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
@@ -43,7 +42,7 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
   Timer? _timer;
   StreamSubscription<BatteryState>? _batteryStateSubscription;
 
-  // Visual Alert အတွက် State များ
+  bool isMonitoring = true;
   bool isAlerting = false;
   Color flashColor = Colors.redAccent;
   Color flashTextColor = Colors.white;
@@ -51,21 +50,13 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
   @override
   void initState() {
     super.initState();
-    initClient();
+    checkAndInit();
   }
 
-  Future<void> initClient() async {
-    const androidConfig = FlutterBackgroundAndroidConfig(
-      notificationTitle: "Charging Monitor",
-      notificationText: "Battery data syncing in background...",
-      notificationIcon: AndroidResource(name: 'ic_launcher', defType: 'mipmap'),
-    );
-    bool hasPermissions = await FlutterBackground.initialize(androidConfig: androidConfig);
-    if (hasPermissions) {
-      await FlutterBackground.enableBackgroundExecution();
-    }
-
+  Future<void> checkAndInit() async {
     final prefs = await SharedPreferences.getInstance();
+    
+    // ၁။ UID ကို အမြဲတမ်း တစ်ခုတည်းသာ ထားရှိမည် (ဘယ်တော့မှ မဖျက်ပါ)
     deviceUid = prefs.getString('uid');
     if (deviceUid == null) {
       deviceUid = const Uuid().v4().substring(0, 8);
@@ -77,25 +68,56 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
       deviceName = "${androidInfo.brand.toUpperCase()} ${androidInfo.model}";
     } catch (_) {}
 
+    // အကယ်၍ App ကို ရပ်တန့်ထားခဲ့ပါက နောက်ကွယ်မှ အလိုအလျောက် မ run စေရန် တားဆီးမည်
+    isMonitoring = prefs.getBool('is_monitoring') ?? true;
+    if (!isMonitoring) {
+      setState(() {
+        syncStatus = "Service Stopped (Inactive)";
+      });
+      return;
+    }
+
+    await startMonitoringService();
+  }
+
+  Future<void> startMonitoringService() async {
+    const androidConfig = FlutterBackgroundAndroidConfig(
+      notificationTitle: "Charging Monitor",
+      notificationText: "Battery data syncing in background...",
+      notificationIcon: AndroidResource(name: 'ic_launcher', defType: 'mipmap'),
+    );
+    bool hasPermissions = await FlutterBackground.initialize(androidConfig: androidConfig);
+    if (hasPermissions) {
+      await FlutterBackground.enableBackgroundExecution();
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('is_monitoring', true);
+
+    setState(() {
+      isMonitoring = true;
+    });
+
     await sendUpdate();
 
+    _timer?.cancel();
     _timer = Timer.periodic(const Duration(seconds: 15), (timer) {
       sendUpdate();
     });
 
+    _batteryStateSubscription?.cancel();
     _batteryStateSubscription = _battery.onBatteryStateChanged.listen((BatteryState state) {
       sendUpdate();
     });
   }
 
-  // မျက်နှာပြင် မီးတဖျတ်ဖျတ် လင်းလက်ပြသမည့် စနစ် (၁၀ စက္ကန့် အပြည့်)
+  // ၁၀ စက္ကန့် အပြည့် မျက်နှာပြင် မီးတဖျတ်ဖျတ် လင်းလက်ပြသမည့် စနစ်
   Future<void> startFlashingBeacon() async {
     setState(() {
       isAlerting = true;
     });
 
-    // အကြိမ် ၃၀ ခန့် လင်းလက်ပြေးမည် (၃၃၀ ms x ၃၀ = ၁၀ စက္ကန့်ခန့် ကြာမြင့်မည်)
-    for (int i = 0; i < 30; i++) {
+    for (int i = 0; i < 30; i++) { // ၃၀ ကြိမ် x ၃၃၀ ms = ၁၀ စက္ကန့်
       if (!mounted) break;
       setState(() {
         if (i % 2 == 0) {
@@ -114,80 +136,37 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
     }
   }
 
-  // Pickup အမိန့်ရရှိသည့်အခါ ဆောင်ရွက်မည့် လုပ်ငန်းစဉ်
-  Future<void> handlePickupCommand() async {
-    // ၁။ ဆာဗာသို့ ထပ်မံ ချိတ်ဆက်မည့် Timer နှင့် Event များကို ချက်ချင်း ရပ်ပစ်မည်
+  // App ကို နောက်ကွယ် Service ရော အကုန်လုံးပါ အပြီးသတ် ပိတ်ပစ်မည့် စနစ်
+  Future<void> stopAndExitApp({bool flashFirst = false}) async {
+    // Timer များနှင့် Background Listener များကို ချက်ချင်း ရပ်တန့်မည်
     _timer?.cancel();
     _timer = null;
     _batteryStateSubscription?.cancel();
     _batteryStateSubscription = null;
 
-    // ၂။ Background Foreground Service ကို ကြိုတင်ပိတ်မည် (Notification ပါ ချက်ချင်း ပျောက်သွားမည်)
-    try {
-      if (FlutterBackground.isBackgroundExecutionEnabled) {
-        await FlutterBackground.disableBackgroundExecution();
-      }
-    } catch (_) {}
-
-    // ၃။ (၁၀) စက္ကန့် အပြည့် မီးလင်းလက် အချက်ပြမည်
-    await startFlashingBeacon();
-
-    // ၄။ App Process တစ်ခုလုံးကို လုံးဝ အပြီးသတ် ပိတ်ချမည်
-    await shutdownApp();
-  }
-
-  // App ကို နောက်ကွယ် Service ရော Process ပါ လုံးဝ သတ်ပစ်မည့် စနစ်
-  Future<void> shutdownApp() async {
-    _timer?.cancel();
-    _timer = null;
-    _batteryStateSubscription?.cancel();
-    _batteryStateSubscription = null;
-
+    // အရေးကြီးဆုံး: App ကို ရပ်တန့်ထားသည်ဟု အမှတ်အသား ပြုလုပ်မည် (Auto-restart မဖြစ်စေရန်)
     final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('uid');
+    await prefs.setBool('is_monitoring', false);
 
+    // Background Service နှင့် Notification ကို အပြီးသတ် ဖြုတ်ချမည်
     try {
       if (FlutterBackground.isBackgroundExecutionEnabled) {
         await FlutterBackground.disableBackgroundExecution();
       }
     } catch (_) {}
+
+    if (flashFirst) {
+      await startFlashingBeacon(); // Pickup ဖြစ်ပါက ၁၀ စက္ကန့် မီးလင်းပြမည်
+    }
 
     await Future.delayed(const Duration(milliseconds: 500));
+    
+    // Android စနစ်နှင့် အကိုက်ညီဆုံးဖြစ်သော SystemNavigator ဖြင့် ပိတ်သိမ်းမည်
     await SystemNavigator.pop(animated: true);
-    exit(0);
-  }
-
-  // Exit ခလုတ် နှိပ်သည့်အခါ ပြသမည့် Dialog
-  void _confirmExit() {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1E293B),
-        title: const Text("Exit App", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-        content: const Text(
-          "App ကို နောက်ကွယ် Background Service ရော အကုန်လုံးပါ လုံးဝ ပိတ်မှာ သေချာပါသလား?",
-          style: TextStyle(color: Colors.white70),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text("မပိတ်ပါ (CANCEL)", style: TextStyle(color: Colors.white60)),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
-            onPressed: () {
-              Navigator.pop(ctx);
-              shutdownApp();
-            },
-            child: const Text("ပိတ်မည် (EXIT)", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-          ),
-        ],
-      ),
-    );
   }
 
   Future<void> sendUpdate() async {
-    if (isAlerting) return;
+    if (isAlerting || !isMonitoring) return;
 
     try {
       final level = await _battery.batteryLevel;
@@ -226,15 +205,15 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
           if (response.statusCode == 200) {
             final data = jsonDecode(response.body);
             
-            // Excel မှ Pickup လုပ်လိုက်သောအခါ (၁၀ စက္ကန့် လင်းလက်ပြပြီး လုံးဝ ပိတ်မည်)
+            // Excel မှ Pickup လုပ်လိုက်သောအခါ (၁၀ စက္ကန့် လင်းလက်ပြပြီး အပြီးသတ် ပိတ်မည်)
             if (data['command'] == 'alarm_and_close') {
-              await handlePickupCommand();
+              await stopAndExitApp(flashFirst: true);
               return;
             }
             
-            // PC Dashboard မှ ✕ (Delete) နှိပ်သောအခါ
+            // PC Monitor မှ ✕ (Delete) နှိပ်သောအခါ
             if (data['command'] == 'close_app') {
-              await shutdownApp();
+              await stopAndExitApp(flashFirst: false);
               return;
             }
 
@@ -270,7 +249,7 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
 
   @override
   Widget build(BuildContext context) {
-    // Pickup လုပ်ချိန်တွင် ပြသမည့် Visual Alert Screen (၁၀ စက္ကန့် မီးရောင်ပုံစံ)
+    // Pickup လုပ်ချိန်တွင် ပြသမည့် Visual Alert Screen (၁၀ စက္ကန့် မီးရောင်)
     if (isAlerting) {
       return Scaffold(
         backgroundColor: flashColor,
@@ -313,7 +292,6 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
       );
     }
 
-    // ပုံမှန် အချိန်တွင် ပြသမည့် Monitor Screen
     Color statusColor = Colors.redAccent;
     String statusText = "🔌 NOT CHARGING";
 
@@ -360,19 +338,18 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
                 Text(syncStatus, style: const TextStyle(color: Colors.white30, fontSize: 12)),
                 const SizedBox(height: 40),
 
-                // App အား လုံးဝ အပြီးသတ် ပိတ်ရန် EXIT ခလုတ်
-                OutlinedButton.icon(
-                  onPressed: _confirmExit,
-                  icon: const Icon(Icons.power_settings_new, color: Colors.redAccent, size: 22),
+                // App အား နောက်ကွယ် Service ရော အကုန်လုံးပါ လုံးဝ ပိတ်ချမည့် EXIT ခလုတ်
+                ElevatedButton.icon(
+                  onPressed: () => stopAndExitApp(flashFirst: false),
+                  icon: const Icon(Icons.power_settings_new, color: Colors.white, size: 22),
                   label: const Text(
-                    "EXIT APP",
-                    style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold),
+                    "EXIT APP (လုံးဝပိတ်မည်)",
+                    style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
                   ),
-                  style: OutlinedButton.styleFrom(
-                    side: const BorderSide(color: Colors.redAccent, width: 1.5),
-                    padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 12),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.red.shade800,
+                    padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
-                    backgroundColor: Colors.redAccent.withOpacity(0.1),
                   ),
                 ),
               ],
