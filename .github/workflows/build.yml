@@ -44,7 +44,7 @@ jobs:
                   t = t.replace('<application', permissions)
                   open(manifest, 'w').write(t)
 
-          # compileSdk 36 နှင့် minSdk 19 သို့ ပြောင်းလဲခြင်း (Android 4.4 KitKat အထိ ရစေရန်)
+          # compileSdk 36 နှင့် minSdk 19 သို့ ပြောင်းလဲခြင်း (အရေးကြီးဆုံး အပိုင်း)
           for f in glob.glob('android/app/build.gradle*'):
               c = open(f).read()
               c = c.replace('compileSdk = flutter.compileSdkVersion', 'compileSdk = 36')
