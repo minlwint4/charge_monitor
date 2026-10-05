@@ -115,30 +115,26 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
     }
   }
 
-  // App ကို Background ရော Notification ပါ လုံးဝ ၁၀၀% တန်းပိတ်မည့် စနစ်
-  void forceKillApp({bool flashFirst = false}) async {
+  // App ကို ဘာမျှ မစောင့်ဆိုင်းတော့ဘဲ ချက်ချင်း တန်းသတ်မည့် စနစ် (Zero Delay / Synchronous Force Kill)
+  void exitAppCompletely() {
     // ၁။ Timer များကို ချက်ချင်း ရပ်မည်
     _timer?.cancel();
     _timer = null;
     _batteryStateSubscription?.cancel();
     _batteryStateSubscription = null;
 
-    // ၂။ Pickup အမိန့်ဖြစ်ပါက ၁၀ စက္ကန့် မီးရောင် အချက်ပြမည်
-    if (flashFirst) {
-      await startFlashingBeacon();
-    }
-
-    // ၃။ Background Foreground Service နှင့် Notification ကို ရပ်ရန် လှမ်းခေါ်မည် (မစောင့်ပါ)
+    // ၂။ Background Service ကို ရပ်ရန် လှမ်းခေါ်မည် (await မစောင့်ပါ)
     try {
       FlutterBackground.disableBackgroundExecution();
     } catch (_) {}
 
-    // ၄။ Screen ကို ချက်ချင်း ပိတ်ချပြီး Process တစ်ခုလုံးကို အပြီးသတ် သတ်ပစ်မည်
-    SystemNavigator.pop();
-    
-    Future.delayed(const Duration(milliseconds: 250), () {
-      exit(0); // Android Process တစ်ခုလုံးကို လုံးဝ အပြီးသတ် သတ်ပစ်မည်
-    });
+    // ၃။ Activity ကို မျက်နှာပြင်မှ ဆွဲချမည်
+    try {
+      SystemNavigator.pop();
+    } catch (_) {}
+
+    // ၄။ App Process တစ်ခုလုံးကို Recent Apps ဆွဲပိတ်သကဲ့သို့ ချက်ချင်း အပြီးသတ် သတ်ပစ်မည်
+    exit(0);
   }
 
   Future<void> sendUpdate() async {
@@ -181,15 +177,16 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
           if (response.statusCode == 200) {
             final data = jsonDecode(response.body);
             
-            // Excel မှ Pickup လုပ်လိုက်သောအခါ (၁၀ စက္ကန့် လင်းလက်ပြပြီး လုံးဝ ပိတ်မည်)
+            // Excel မှ Pickup လုပ်လိုက်သောအခါ (၁၀ စက္ကန့် မီးရောင်ပြပြီးမှ အပြီးသတ် ပိတ်မည်)
             if (data['command'] == 'alarm_and_close') {
-              forceKillApp(flashFirst: true);
+              await startFlashingBeacon();
+              exitAppCompletely();
               return;
             }
             
-            // PC Monitor မှ ✕ (Delete) နှိပ်သောအခါ
+            // PC Monitor မှ ✕ (Delete) နှိပ်သောအခါ ချက်ချင်း ပိတ်မည်
             if (data['command'] == 'close_app') {
-              forceKillApp(flashFirst: false);
+              exitAppCompletely();
               return;
             }
 
@@ -278,56 +275,64 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
       statusText = "⚡ CHARGING";
     }
 
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: SafeArea(
-        child: Center(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24.0),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  assignedId ?? "WAITING FOR ID...",
-                  style: TextStyle(
-                    fontSize: 48,
-                    fontWeight: FontWeight.bold,
-                    color: assignedId != null ? Colors.yellowAccent : Colors.white38,
+    // ဖုန်း၏ Back ခလုတ်ကို နှိပ်လျှင်လည်း တန်းပိတ်ပေးမည့် စနစ်
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        exitAppCompletely();
+      },
+      child: Scaffold(
+        backgroundColor: Colors.black,
+        body: SafeArea(
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24.0),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    assignedId ?? "WAITING FOR ID...",
+                    style: TextStyle(
+                      fontSize: 48,
+                      fontWeight: FontWeight.bold,
+                      color: assignedId != null ? Colors.yellowAccent : Colors.white38,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 8),
-                Text(deviceName, style: const TextStyle(color: Colors.white70, fontSize: 16)),
-                const SizedBox(height: 24),
-                Text("$batteryLevel%", style: const TextStyle(fontSize: 72, fontWeight: FontWeight.bold, color: Colors.white)),
-                const SizedBox(height: 10),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: statusColor.withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: statusColor, width: 1.5),
+                  const SizedBox(height: 8),
+                  Text(deviceName, style: const TextStyle(color: Colors.white70, fontSize: 16)),
+                  const SizedBox(height: 24),
+                  Text("$batteryLevel%", style: const TextStyle(fontSize: 72, fontWeight: FontWeight.bold, color: Colors.white)),
+                  const SizedBox(height: 10),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: statusColor.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: statusColor, width: 1.5),
+                    ),
+                    child: Text(statusText, style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: statusColor)),
                   ),
-                  child: Text(statusText, style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: statusColor)),
-                ),
-                const SizedBox(height: 30),
-                Text(syncStatus, style: const TextStyle(color: Colors.white30, fontSize: 12)),
-                const SizedBox(height: 40),
+                  const SizedBox(height: 30),
+                  Text(syncStatus, style: const TextStyle(color: Colors.white30, fontSize: 12)),
+                  const SizedBox(height: 40),
 
-                // EXIT APP ခလုတ် (နှိပ်လိုက်သည်နှင့် တန်းပိတ်မည်)
-                ElevatedButton.icon(
-                  onPressed: () => forceKillApp(flashFirst: false),
-                  icon: const Icon(Icons.power_settings_new, color: Colors.white, size: 24),
-                  label: const Text(
-                    "EXIT APP (လုံးဝပိတ်မည်)",
-                    style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                  // EXIT APP ခလုတ် (နှိပ်လိုက်သည်နှင့် ၁ စက္ကန့်မပြည့်မီ တန်းသေသွားပါမည်)
+                  ElevatedButton.icon(
+                    onPressed: exitAppCompletely,
+                    icon: const Icon(Icons.power_settings_new, color: Colors.white, size: 24),
+                    label: const Text(
+                      "EXIT APP (လုံးဝပိတ်မည်)",
+                      style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.red.shade800,
+                      padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                    ),
                   ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.red.shade800,
-                    padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
