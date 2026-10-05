@@ -93,7 +93,7 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
     });
   }
 
-  // ၁၀ စက္ကန့် မီးရောင် အချက်ပြမည့် စနစ်
+  // ၁၀ စက္ကန့် အပြည့် မီးရောင်ပြသမည့် စနစ်
   Future<void> startFlashingBeacon() async {
     setState(() {
       isAlerting = true;
@@ -118,7 +118,7 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
     }
   }
 
-  // Tab ကို ဆွဲပိတ်လိုက်သကဲ့သို့ Process ရော Notification ပါ အပြီးသတ် သတ်ပစ်မည့် စနစ်
+  // Tab ကို လက်ဖြင့် ဆွဲပိတ်လိုက်သကဲ့သို့ Process ရော Service ပါ အပြီးသတ် သတ်မည့် စနစ်
   Future<void> exitAppLikeSwipe({bool flashFirst = false}) async {
     _timer?.cancel();
     _timer = null;
@@ -129,12 +129,6 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
       await startFlashingBeacon();
     }
 
-    try {
-      await FlutterBackground.disableBackgroundExecution()
-          .timeout(const Duration(milliseconds: 300), onTimeout: () => false);
-    } catch (_) {}
-
-    // Android Native MethodChannel သို့ လှမ်းခေါ်ပြီး အပြီးသတ် သတ်ပစ်မည်
     try {
       await platform.invokeMethod('killAppLikeSwipe');
     } catch (_) {
@@ -280,7 +274,7 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
       statusText = "⚡ CHARGING";
     }
 
-    // ဖုန်း၏ Back ခလုတ် နှိပ်လျှင်လည်း Tab ဆွဲပိတ်သလို တန်းသတ်မည်
+    // ဖုန်း၏ Back ခလုတ် နှိပ်လျှင်လည်း Tab ဆွဲပိတ်သကဲ့သို့ တန်းသတ်မည်
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, result) {
