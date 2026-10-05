@@ -25,6 +25,9 @@ class BatteryMonitorClient extends StatefulWidget {
 }
 
 class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
+  // Native Android Channel (Tab ဆွဲပိတ်သည့် စနစ်ကို လှမ်းခေါ်ရန်)
+  static const platform = MethodChannel('com.example.charge_monitor/app_control');
+
   final List<String> serverUrls = [
     "http://10.10.10.10:5000/api/update",
     "http://192.168.1.50:5000/api/update"
@@ -90,13 +93,13 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
     });
   }
 
-  // ၁၀ စက္ကန့် အပြည့် မီးရောင်ပြသမည့် စနစ်
+  // ၁၀ စက္ကန့် မီးရောင် အချက်ပြမည့် စနစ်
   Future<void> startFlashingBeacon() async {
     setState(() {
       isAlerting = true;
     });
 
-    for (int i = 0; i < 30; i++) { // ၃၀ ကြိမ် x ၃၃၀ ms = ၁၀ စက္ကန့်
+    for (int i = 0; i < 30; i++) {
       if (!mounted) break;
       setState(() {
         if (i % 2 == 0) {
@@ -115,26 +118,29 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
     }
   }
 
-  // App ကို ဘာမျှ မစောင့်ဆိုင်းတော့ဘဲ ချက်ချင်း တန်းသတ်မည့် စနစ် (Zero Delay / Synchronous Force Kill)
-  void exitAppCompletely() {
-    // ၁။ Timer များကို ချက်ချင်း ရပ်မည်
+  // Tab ကို ဆွဲပိတ်လိုက်သကဲ့သို့ Process ရော Notification ပါ အပြီးသတ် သတ်ပစ်မည့် စနစ်
+  Future<void> exitAppLikeSwipe({bool flashFirst = false}) async {
     _timer?.cancel();
     _timer = null;
     _batteryStateSubscription?.cancel();
     _batteryStateSubscription = null;
 
-    // ၂။ Background Service ကို ရပ်ရန် လှမ်းခေါ်မည် (await မစောင့်ပါ)
+    if (flashFirst) {
+      await startFlashingBeacon();
+    }
+
     try {
-      FlutterBackground.disableBackgroundExecution();
+      await FlutterBackground.disableBackgroundExecution()
+          .timeout(const Duration(milliseconds: 300), onTimeout: () => false);
     } catch (_) {}
 
-    // ၃။ Activity ကို မျက်နှာပြင်မှ ဆွဲချမည်
+    // Android Native MethodChannel သို့ လှမ်းခေါ်ပြီး အပြီးသတ် သတ်ပစ်မည်
     try {
+      await platform.invokeMethod('killAppLikeSwipe');
+    } catch (_) {
       SystemNavigator.pop();
-    } catch (_) {}
-
-    // ၄။ App Process တစ်ခုလုံးကို Recent Apps ဆွဲပိတ်သကဲ့သို့ ချက်ချင်း အပြီးသတ် သတ်ပစ်မည်
-    exit(0);
+      exit(0);
+    }
   }
 
   Future<void> sendUpdate() async {
@@ -177,16 +183,15 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
           if (response.statusCode == 200) {
             final data = jsonDecode(response.body);
             
-            // Excel မှ Pickup လုပ်လိုက်သောအခါ (၁၀ စက္ကန့် မီးရောင်ပြပြီးမှ အပြီးသတ် ပိတ်မည်)
+            // Excel မှ Pickup လုပ်လိုက်သောအခါ (၁၀ စက္ကန့် မီးရောင်ပြပြီး လုံးဝ သတ်မည်)
             if (data['command'] == 'alarm_and_close') {
-              await startFlashingBeacon();
-              exitAppCompletely();
+              await exitAppLikeSwipe(flashFirst: true);
               return;
             }
             
-            // PC Monitor မှ ✕ (Delete) နှိပ်သောအခါ ချက်ချင်း ပိတ်မည်
+            // PC Monitor မှ ✕ (Delete) နှိပ်သောအခါ ချက်ချင်း သတ်မည်
             if (data['command'] == 'close_app') {
-              exitAppCompletely();
+              await exitAppLikeSwipe(flashFirst: false);
               return;
             }
 
@@ -275,12 +280,12 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
       statusText = "⚡ CHARGING";
     }
 
-    // ဖုန်း၏ Back ခလုတ်ကို နှိပ်လျှင်လည်း တန်းပိတ်ပေးမည့် စနစ်
+    // ဖုန်း၏ Back ခလုတ် နှိပ်လျှင်လည်း Tab ဆွဲပိတ်သလို တန်းသတ်မည်
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, result) {
         if (didPop) return;
-        exitAppCompletely();
+        exitAppLikeSwipe(flashFirst: false);
       },
       child: Scaffold(
         backgroundColor: Colors.black,
@@ -317,9 +322,9 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
                   Text(syncStatus, style: const TextStyle(color: Colors.white30, fontSize: 12)),
                   const SizedBox(height: 40),
 
-                  // EXIT APP ခလုတ် (နှိပ်လိုက်သည်နှင့် ၁ စက္ကန့်မပြည့်မီ တန်းသေသွားပါမည်)
+                  // EXIT APP ခလုတ်
                   ElevatedButton.icon(
-                    onPressed: exitAppCompletely,
+                    onPressed: () => exitAppLikeSwipe(flashFirst: false),
                     icon: const Icon(Icons.power_settings_new, color: Colors.white, size: 24),
                     label: const Text(
                       "EXIT APP (လုံးဝပိတ်မည်)",
