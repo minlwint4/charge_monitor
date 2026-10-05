@@ -2,6 +2,9 @@ package com.example.charge_monitor
 
 import android.app.NotificationManager
 import android.content.Context
+import android.content.Intent
+import android.os.Handler
+import android.os.Looper
 import android.os.Process
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -14,18 +17,28 @@ class MainActivity: FlutterActivity() {
         super.configureFlutterEngine(flutterEngine)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
             if (call.method == "killAppLikeSwipe") {
+                result.success(true)
+
                 try {
-                    // ၁။ Notification အားလုံးကို ချက်ချင်း ဖျက်ချမည်
+                    // ၁။ flutter_background ၏ Foreground Service ကို Android OS အဆင့်မှ တိုက်ရိုက် ရပ်တန့်မည်
+                    val serviceIntent = Intent(this, Class.forName("de.julianassmann.flutter_background.IsolateHolderService"))
+                    stopService(serviceIntent)
+                } catch (_: Exception) {}
+
+                try {
+                    // ၂။ Notification အားလုံးကို ချက်ချင်း ဖျက်ချမည်
                     val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
                     notificationManager.cancelAll()
-                } catch (e: Exception) {}
+                } catch (_: Exception) {}
 
-                // ၂။ Tab ကို လက်ဖြင့် ဆွဲပိတ်လိုက်သကဲ့သို့ Task တစ်ခုလုံးကို ရှင်းထုတ်မည်
+                // ၃။ Recent Apps (Tab) ကို လက်ဖြင့် ဆွဲပိတ်လိုက်သကဲ့သို့ Task တစ်ခုလုံးကို ရှင်းလင်းမည်
                 finishAndRemoveTask()
 
-                // ၃။ Process တစ်ခုလုံးကို အပြီးသတ် သတ်ပစ်မည်
-                Process.killProcess(Process.myPid())
-                System.exit(0)
+                // ၄။ Task ရှင်းလင်းပြီးသည်နှင့် Process ကို လုံးဝ အပြီးသတ် သတ်ပစ်မည်
+                Handler(Looper.getMainLooper()).postDelayed({
+                    Process.killProcess(Process.myPid())
+                    System.exit(0)
+                }, 200)
             } else {
                 result.notImplemented()
             }
