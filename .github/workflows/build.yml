@@ -30,7 +30,48 @@ jobs:
           rm -rf android
           flutter create . --platforms android --org com.example
 
-      # Native Kill နှင့် Alarm စနစ်ကို MainActivity.kt ထဲ ထည့်သွင်းခြင်း
+      # ၁။ Offline LAN (http://) ချိတ်ဆက်ခွင့်နှင့် Internet Permission ထည့်သွင်းခြင်း
+      - name: Inject AndroidManifest with Cleartext HTTP Permission
+        run: |
+          cat << 'EOF' > android/app/src/main/AndroidManifest.xml
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.INTERNET"/>
+              <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+              <uses-permission android:name="android.permission.WAKE_LOCK"/>
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+              <uses-permission android:name="android.permission.VIBRATE"/>
+
+              <application
+                  android:label="charge_monitor"
+                  android:name="${applicationName}"
+                  android:icon="@mipmap/ic_launcher"
+                  android:usesCleartextTraffic="true">
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:launchMode="singleTop"
+                      android:taskAffinity=""
+                      android:theme="@style/LaunchTheme"
+                      android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+                      android:hardwareAccelerated="true"
+                      android:windowSoftInputMode="adjustResize">
+                      <meta-data
+                        android:name="io.flutter.embedding.android.NormalTheme"
+                        android:resource="@style/NormalTheme"
+                        />
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN"/>
+                          <category android:name="android.intent.category.LAUNCHER"/>
+                      </intent-filter>
+                  </activity>
+                  <meta-data
+                      android:name="flutterEmbedding"
+                      android:value="2" />
+              </application>
+          </manifest>
+          EOF
+
+      # ၂။ Native Kill နှင့် Alarm စနစ်ကို MainActivity.kt ထဲ ထည့်သွင်းခြင်း
       - name: Inject Native Kill & Alarm MainActivity
         run: |
           cat << 'EOF' > android/app/src/main/kotlin/com/example/charge_monitor/MainActivity.kt
