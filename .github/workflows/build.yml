@@ -25,18 +25,32 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: Recreate Clean Android Structure
+      - name: Recreate Android & Fix SDK Versions
         run: |
-          # မပြည့်စုံသော android folder အဟောင်းကို ဖျက်သည်
+          # Android folder ကို အသစ်ပြန်ဆောက်သည်
           rm -rf android
-          # Flutter မှ V2 Embedding အပြည့်ပါသော Android folder ကို အလိုအလျောက် အသစ်ဆောက်သည်
           flutter create . --platforms=android
-          # ဖုန်းမှ PC ဆီ Data ပို့နိုင်ရန် INTERNET permission ထည့်သွင်းသည်
+
+          # compileSdk 34, minSdk 21 နှင့် Internet Permission များကို တစ်ခါတည်း သတ်မှတ်သည်
           python3 -c "
-          p = 'android/app/src/main/AndroidManifest.xml'
-          t = open(p).read()
-          t = t.replace('<application', '<uses-permission android:name=\"android.permission.INTERNET\"/>\n    <application')
-          open(p, 'w').write(t)
+          import glob, os
+
+          # 1. Internet Permission ထည့်သွင်းခြင်း
+          manifest = 'android/app/src/main/AndroidManifest.xml'
+          if os.path.exists(manifest):
+              text = open(manifest).read()
+              if 'android.permission.INTERNET' not in text:
+                  text = text.replace('<application', '<uses-permission android:name=\"android.permission.INTERNET\"/>\n    <application')
+                  open(manifest, 'w').write(text)
+
+          # 2. compileSdk 34 နှင့် minSdk 21 သို့ ပြောင်းလဲခြင်း
+          for f in glob.glob('android/app/build.gradle*'):
+              c = open(f).read()
+              c = c.replace('compileSdk = flutter.compileSdkVersion', 'compileSdk = 34')
+              c = c.replace('compileSdkVersion flutter.compileSdkVersion', 'compileSdkVersion 34')
+              c = c.replace('minSdk = flutter.minSdkVersion', 'minSdk = 21')
+              c = c.replace('minSdkVersion flutter.minSdkVersion', 'minSdkVersion 21')
+              open(f, 'w').write(c)
           "
 
       - name: Install Dependencies
