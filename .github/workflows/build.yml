@@ -25,10 +25,24 @@ jobs:
           channel: 'stable'
           cache: true
 
+      - name: Recreate Clean Android Structure
+        run: |
+          # မပြည့်စုံသော android folder အဟောင်းကို ဖျက်သည်
+          rm -rf android
+          # Flutter မှ V2 Embedding အပြည့်ပါသော Android folder ကို အလိုအလျောက် အသစ်ဆောက်သည်
+          flutter create . --platforms=android
+          # ဖုန်းမှ PC ဆီ Data ပို့နိုင်ရန် INTERNET permission ထည့်သွင်းသည်
+          python3 -c "
+          p = 'android/app/src/main/AndroidManifest.xml'
+          t = open(p).read()
+          t = t.replace('<application', '<uses-permission android:name=\"android.permission.INTERNET\"/>\n    <application')
+          open(p, 'w').write(t)
+          "
+
       - name: Install Dependencies
         run: flutter pub get
 
-      - name: Build APK (Split ABI for lightweight low-end phones)
+      - name: Build APK (Split ABI)
         run: flutter build apk --split-per-abi
 
       - name: Upload APK Artifacts
