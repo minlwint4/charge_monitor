@@ -44,13 +44,13 @@ jobs:
                   t = t.replace('<application', permissions)
                   open(manifest, 'w').write(t)
 
-          # compileSdk 36 နှင့် minSdk 21 သို့ ပြောင်းလဲခြင်း
+          # compileSdk 36 နှင့် minSdk 19 သို့ ပြောင်းလဲခြင်း (Android 4.4 KitKat အထိ ရစေရန်)
           for f in glob.glob('android/app/build.gradle*'):
               c = open(f).read()
               c = c.replace('compileSdk = flutter.compileSdkVersion', 'compileSdk = 36')
               c = c.replace('compileSdkVersion flutter.compileSdkVersion', 'compileSdkVersion 36')
-              c = c.replace('minSdk = flutter.minSdkVersion', 'minSdk = 21')
-              c = c.replace('minSdkVersion flutter.minSdkVersion', 'minSdkVersion 21')
+              c = c.replace('minSdk = flutter.minSdkVersion', 'minSdk = 19')
+              c = c.replace('minSdkVersion flutter.minSdkVersion', 'minSdkVersion 19')
               open(f, 'w').write(c)
           "
 
