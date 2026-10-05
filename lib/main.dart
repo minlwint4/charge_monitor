@@ -8,6 +8,7 @@ import 'package:device_info_plus/device_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 import 'package:flutter_background/flutter_background.dart';
+import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -24,14 +25,12 @@ class BatteryMonitorClient extends StatefulWidget {
 }
 
 class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
-  // IP နှစ်ခုလုံးကို ထည့်သွင်းထားပါသည်
   final List<String> serverUrls = [
     "http://10.10.10.10:5000/api/update",
     "http://192.168.1.50:5000/api/update"
   ];
   
-  int workingUrlIndex = 0; // အလုပ်လုပ်နေသော IP ကို မှတ်ထားရန်
-  
+  int workingUrlIndex = 0; 
   final Battery _battery = Battery();
   
   String? deviceUid;
@@ -103,7 +102,6 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
 
       bool isConnected = false;
 
-      // IP များကို တစ်ခုပြီးတစ်ခု လှည့်ပတ် စမ်းသပ်မည့်စနစ်
       for (int i = 0; i < serverUrls.length; i++) {
         int tryIndex = (workingUrlIndex + i) % serverUrls.length;
         String tryUrl = serverUrls[tryIndex];
@@ -118,11 +116,24 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
               'battery': level,
               'status': status,
             }),
-          ).timeout(const Duration(seconds: 3)); // ၃ စက္ကန့်စောင့်၍ မရပါက နောက် IP သို့ ပြောင်းမည်
+          ).timeout(const Duration(seconds: 3)); 
 
           if (response.statusCode == 200) {
             final data = jsonDecode(response.body);
             
+            // Excel မှ Dropoff လှမ်းလုပ်လိုက်သောအခါ (Alarm မြည်ပြီး App ပိတ်မည်)
+            if (data['command'] == 'alarm_and_close') {
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.remove('uid');
+              
+              FlutterRingtonePlayer().playAlarm();
+              await Future.delayed(const Duration(seconds: 3));
+              FlutterRingtonePlayer().stop();
+              
+              exit(0);
+            }
+
+            // PC မှ Delete (✕) နှိပ်သောအခါ (App အသံတိတ် ပိတ်မည်)
             if (data['command'] == 'close_app') {
               final prefs = await SharedPreferences.getInstance();
               await prefs.remove('uid');
@@ -131,16 +142,14 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
 
             setState(() {
               assignedId = data['assigned_id'];
-              // မည်သည့် IP ဖြင့် ချိတ်ဆက်ထားကြောင်း မျက်နှာပြင်တွင် ဖော်ပြပေးမည်
               syncStatus = "Connected (${tryUrl.split('/')[2]})"; 
             });
             
-            workingUrlIndex = tryIndex; // ချိတ်ဆက်အောင်မြင်သော IP ကို မှတ်ထားမည်
+            workingUrlIndex = tryIndex; 
             isConnected = true;
-            break; // အောင်မြင်ပါက Loop ထဲမှ ထွက်မည်
+            break; 
           }
         } catch (e) {
-          // ဤ IP ဖြင့် ချိတ်မရပါက နောက်တစ်ခုသို့ ဆက်သွားမည်
           continue; 
         }
       }
