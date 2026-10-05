@@ -43,6 +43,11 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
   Timer? _timer;
   StreamSubscription<BatteryState>? _batteryStateSubscription;
 
+  // Visual Alert (မျက်နှာပြင် မီးတဖျတ်ဖျတ်လင်းမည့် စနစ်) အတွက် State များ
+  bool isAlerting = false;
+  Color flashColor = Colors.redAccent;
+  Color flashTextColor = Colors.white;
+
   @override
   void initState() {
     super.initState();
@@ -83,41 +88,56 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
     });
   }
 
-  // အသံနှင့် တုန်ခါမှု ပြုလုပ်မည့် စနစ်
-  Future<void> notifyAndClose() async {
-    for (int i = 0; i < 3; i++) {
+  // မျက်နှာပြင်ပေါ်တွင် အနီရောင်နှင့် အဝါရောင် တဖျတ်ဖျတ် လင်းလက်စေမည့် စနစ် (၅ စက္ကန့်ကြာမည်)
+  Future<void> startFlashingBeacon() async {
+    setState(() {
+      isAlerting = true;
+    });
+
+    // အကြိမ် ၂၀ ခန့် တဖျတ်ဖျတ် လင်းလက်ပြေးမည် (စုစုပေါင်း ၅ စက္ကန့်ခန့်)
+    for (int i = 0; i < 18; i++) {
+      if (!mounted) break;
+      setState(() {
+        if (i % 2 == 0) {
+          flashColor = Colors.redAccent;
+          flashTextColor = Colors.white;
+        } else {
+          flashColor = Colors.amberAccent;
+          flashTextColor = Colors.black;
+        }
+      });
+
+      // System Sound နှင့် Vibration ကိုပါ တွဲဖက် အချက်ပေးမည်
       SystemSound.play(SystemSoundType.alert);
       HapticFeedback.heavyImpact();
-      await Future.delayed(const Duration(milliseconds: 700));
+
+      await Future.delayed(const Duration(milliseconds: 300));
     }
   }
 
-  // App ကို နောက်ကွယ် Service ရော Process ပါ လုံးဝ အပြီးသတ် ပိတ်ပစ်မည့် စနစ်
+  // App နှင့် Background Service ကို အပြီးသတ် ပိတ်ပစ်မည့် စနစ်
   Future<void> shutdownApp() async {
-    // ၁။ Timer နှင့် Battery Listener များကို အရင် ရပ်တန့်မည်
     _timer?.cancel();
     _batteryStateSubscription?.cancel();
 
-    // ၂။ ID / UID ကို ဖျက်မည်
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('uid');
 
-    // ၃။ Background Service နှင့် Notification ကို အပြီးသတ် ရပ်တန့်မည် (အဓိက အပိုင်း)
     try {
       if (FlutterBackground.isBackgroundExecutionEnabled) {
         await FlutterBackground.disableBackgroundExecution();
       }
     } catch (_) {}
 
-    // Service ရပ်သွားသည်အထိ ခေတ္တ စောင့်မည်
     await Future.delayed(const Duration(milliseconds: 400));
-
-    // ၄။ Screen ပေါ်မှ ဖယ်ရှားပြီး App Process တစ်ခုလုံးကို အပြီးသတ် သတ်ပစ်မည်
     await SystemNavigator.pop();
     exit(0);
   }
 
   Future<void> sendUpdate() async {
+    // Alert ပြနေစဉ်အတွင်း update မပို့တော့ပါ
+    if (isAlerting) return;
+
     try {
       final level = await _battery.batteryLevel;
       final state = await _battery.batteryState;
@@ -155,14 +175,14 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
           if (response.statusCode == 200) {
             final data = jsonDecode(response.body);
             
-            // Excel မှ Pickup လုပ်လိုက်သောအခါ (အချက်ပေးပြီး App ရော Background Service ပါ အပြီးသတ် ပိတ်မည်)
+            // Excel မှ Pickup လုပ်လိုက်သောအခါ
             if (data['command'] == 'alarm_and_close') {
-              await notifyAndClose(); 
-              await shutdownApp();    
+              await startFlashingBeacon(); // မျက်နှာပြင် တဖျတ်ဖျတ် လင်းပြမည်
+              await shutdownApp();         // ပြီးလျှင် App ကို အပြီး ပိတ်မည်
               return;
             }
             
-            // PC Monitor ဝဘ်ဆိုက်မှ Delete (✕) နှိပ်သောအခါ
+            // PC Monitor မှ ✕ (Delete) နှိပ်သောအခါ
             if (data['command'] == 'close_app') {
               await shutdownApp();
               return;
@@ -200,6 +220,50 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
 
   @override
   Widget build(BuildContext context) {
+    // Pickup လုပ်ချိန်တွင် ပြသမည့် Visual Alert Screen (အရေးပေါ် မီးရောင်ပုံစံ)
+    if (isAlerting) {
+      return Scaffold(
+        backgroundColor: flashColor,
+        body: SafeArea(
+          child: Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.notifications_active, size: 100, color: flashTextColor),
+                const SizedBox(height: 20),
+                Text(
+                  assignedId ?? "PICKUP",
+                  style: TextStyle(
+                    fontSize: 80,
+                    fontWeight: FontWeight.w900,
+                    color: flashTextColor,
+                    letterSpacing: 2,
+                  ),
+                ),
+                const SizedBox(height: 15),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: flashTextColor.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(30),
+                  ),
+                  child: Text(
+                    "⚡ PICKUP READY ⚡",
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      color: flashTextColor,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    // ပုံမှန် အချိန်တွင် ပြသမည့် Monitor Screen
     Color statusColor = Colors.redAccent;
     String statusText = "🔌 NOT CHARGING";
 
