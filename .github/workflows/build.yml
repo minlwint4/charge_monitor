@@ -25,10 +25,15 @@ jobs:
           channel: 'stable'
           cache: true
 
-      # Native Code (Tab ဆွဲပိတ်သည့် စနစ်) ကို APK ထဲ သေချာပေါက် ပါသွားစေရန် ရေးသားခြင်း
-      - name: Inject Native Kill Mechanism
+      # ၁။ V1 Error မတက်စေရန် V2 Embedding ဖြင့် Android Folder ကို အသစ် ပြန်ဆောက်မည်
+      - name: Recreate Android with V2 Embedding
         run: |
-          mkdir -p android/app/src/main/kotlin/com/example/charge_monitor
+          rm -rf android
+          flutter create . --platforms android --org com.example
+
+      # ၂။ Tab ဆွဲပိတ်သည့် Native Code ကို အပေါ်က ဖိုင်အသစ်ပေါ်သို့ တိုက်ရိုက် အစားထိုးမည်
+      - name: Inject Native Kill MainActivity
+        run: |
           cat << 'EOF' > android/app/src/main/kotlin/com/example/charge_monitor/MainActivity.kt
           package com.example.charge_monitor
 
@@ -54,12 +59,12 @@ jobs:
                           try {
                               val serviceIntent = Intent(this, Class.forName("de.julianassmann.flutter_background.IsolateHolderService"))
                               stopService(serviceIntent)
-                          } catch (_: Exception) {}
+                          } catch (e: Exception) {}
 
                           try {
                               val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
                               notificationManager.cancelAll()
-                          } catch (_: Exception) {}
+                          } catch (e: Exception) {}
 
                           finishAndRemoveTask()
 
