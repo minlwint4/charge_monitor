@@ -15,6 +15,7 @@ dependencies:
   shared_preferences: ^2.2.2
   uuid: ^4.3.3
   flutter_background: ^1.2.1
+  flutter_ringtone_player: ^3.3.0
 
 flutter:
   uses-material-design: true
