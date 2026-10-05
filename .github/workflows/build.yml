@@ -30,8 +30,8 @@ jobs:
           rm -rf android
           flutter create . --platforms android --org com.example
 
-      # ၁။ Offline LAN (http://) ချိတ်ဆက်ခွင့်နှင့် Internet Permission ထည့်သွင်းခြင်း
-      - name: Inject AndroidManifest with Cleartext HTTP Permission
+      # ၁။ Lock Screen ပေါ်တွင် ပွင့်လာစေရန်နှင့် Offline HTTP သုံးခွင့် ထည့်သွင်းခြင်း
+      - name: Inject AndroidManifest with Lockscreen Wakeup Permission
         run: |
           cat << 'EOF' > android/app/src/main/AndroidManifest.xml
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
@@ -40,6 +40,7 @@ jobs:
               <uses-permission android:name="android.permission.WAKE_LOCK"/>
               <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
               <uses-permission android:name="android.permission.VIBRATE"/>
+              <uses-permission android:name="android.permission.DISABLE_KEYGUARD"/>
 
               <application
                   android:label="charge_monitor"
@@ -50,6 +51,8 @@ jobs:
                       android:name=".MainActivity"
                       android:exported="true"
                       android:launchMode="singleTop"
+                      android:showWhenLocked="true"
+                      android:turnScreenOn="true"
                       android:taskAffinity=""
                       android:theme="@style/LaunchTheme"
                       android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
@@ -71,21 +74,25 @@ jobs:
           </manifest>
           EOF
 
-      # ၂။ Native Kill နှင့် Alarm စနစ်ကို MainActivity.kt ထဲ ထည့်သွင်းခြင်း
-      - name: Inject Native Kill & Alarm MainActivity
+      # ၂။ Native Kill, Alarm & WakeLock ကို MainActivity.kt ထဲ ထည့်သွင်းခြင်း
+      - name: Inject Native Kill, Alarm & WakeLock MainActivity
         run: |
           cat << 'EOF' > android/app/src/main/kotlin/com/example/charge_monitor/MainActivity.kt
           package com.example.charge_monitor
 
+          import android.app.KeyguardManager
           import android.app.NotificationManager
           import android.content.Context
           import android.content.Intent
           import android.media.AudioAttributes
           import android.media.MediaPlayer
           import android.media.RingtoneManager
+          import android.os.Build
           import android.os.Handler
           import android.os.Looper
+          import android.os.PowerManager
           import android.os.Process
+          import android.view.WindowManager
           import io.flutter.embedding.android.FlutterActivity
           import io.flutter.embedding.engine.FlutterEngine
           import io.flutter.plugin.common.MethodChannel
@@ -93,22 +100,26 @@ jobs:
           class MainActivity: FlutterActivity() {
               private val CHANNEL = "com.example.charge_monitor/app_control"
               private var mediaPlayer: MediaPlayer? = null
+              private var wakeLock: PowerManager.WakeLock? = null
 
               override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
                   super.configureFlutterEngine(flutterEngine)
                   MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
                       when (call.method) {
                           "startAlarm" -> {
+                              wakeUpScreen()
                               startAlarmSound()
                               result.success(true)
                           }
                           "stopAlarm" -> {
                               stopAlarmSound()
+                              releaseWakeLock()
                               result.success(true)
                           }
                           "killAppLikeSwipe" -> {
                               result.success(true)
                               stopAlarmSound()
+                              releaseWakeLock()
 
                               try {
                                   val serviceIntent = Intent(this, Class.forName("de.julianassmann.flutter_background.IsolateHolderService"))
@@ -132,16 +143,53 @@ jobs:
                   }
               }
 
+              private fun wakeUpScreen() {
+                  try {
+                      val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+                      wakeLock = powerManager.newWakeLock(
+                          PowerManager.SCREEN_BRIGHT_WAKE_LOCK or
+                          PowerManager.ACQUIRE_CAUSES_WAKEUP or
+                          PowerManager.ON_AFTER_RELEASE,
+                          "charge_monitor:BeaconWakeLock"
+                      ).apply {
+                          acquire(12 * 1000L)
+                      }
+
+                      runOnUiThread {
+                          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                              setShowWhenLocked(true)
+                              setTurnScreenOn(true)
+                              val keyguardManager = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
+                              keyguardManager.requestDismissKeyguard(this, null)
+                          } else {
+                              @Suppress("DEPRECATION")
+                              window.addFlags(
+                                  WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                                  WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD or
+                                  WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
+                                  WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+                              )
+                          }
+                          window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                      }
+                  } catch (e: Exception) {}
+              }
+
+              private fun releaseWakeLock() {
+                  try {
+                      if (wakeLock?.isHeld == true) {
+                          wakeLock?.release()
+                      }
+                      wakeLock = null
+                  } catch (e: Exception) {}
+              }
+
               private fun startAlarmSound() {
                   try {
                       stopAlarmSound()
                       var alertUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-                      if (alertUri == null) {
-                          alertUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
-                      }
-                      if (alertUri == null) {
-                          alertUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-                      }
+                          ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
+                          ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
 
                       mediaPlayer = MediaPlayer().apply {
                           setDataSource(applicationContext, alertUri)
@@ -169,9 +217,7 @@ jobs:
               private fun stopAlarmSound() {
                   try {
                       mediaPlayer?.let {
-                          if (it.isPlaying) {
-                              it.stop()
-                          }
+                          if (it.isPlaying) it.stop()
                           it.release()
                       }
                       mediaPlayer = null
@@ -180,6 +226,7 @@ jobs:
 
               override fun onDestroy() {
                   stopAlarmSound()
+                  releaseWakeLock()
                   super.onDestroy()
               }
           }
@@ -191,8 +238,14 @@ jobs:
       - name: Build APK
         run: flutter build apk --release
 
+      # ၃။ ထွက်လာသော APK ဖိုင်အမည်ကို charge_monitor.apk အဖြစ် ပြောင်းလဲခြင်း
+      - name: Rename APK to charge_monitor.apk
+        run: |
+          mv build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/charge_monitor.apk
+
+      # ၄။ Artifact Zip အမည်ကို charge_monitor အဖြစ် သတ်မှတ်ပေးခြင်း
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: battery-monitor-universal-apk
-          path: build/app/outputs/flutter-apk/app-release.apk
+          name: charge_monitor
+          path: build/app/outputs/flutter-apk/charge_monitor.apk
