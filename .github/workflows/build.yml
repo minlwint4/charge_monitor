@@ -25,12 +25,13 @@ jobs:
           channel: 'stable'
           cache: true
 
+      # ၁။ com.example အစား သီးသန့် Package Name အသစ်ဖြင့် တည်ဆောက်ခြင်း
       - name: Recreate Android with V2 Embedding
         run: |
           rm -rf android
-          flutter create . --platforms android --org com.example
+          flutter create . --platforms android --org com.dataplus
 
-      # ၁။ Lock Screen ပေါ်တွင် ပွင့်လာစေရန်နှင့် Offline HTTP သုံးခွင့် ထည့်သွင်းခြင်း
+      # ၂။ AndroidManifest ထည့်သွင်းခြင်း
       - name: Inject AndroidManifest with Lockscreen Wakeup Permission
         run: |
           cat << 'EOF' > android/app/src/main/AndroidManifest.xml
@@ -74,11 +75,12 @@ jobs:
           </manifest>
           EOF
 
-      # ၂။ Native Kill, Alarm & WakeLock ကို MainActivity.kt ထဲ ထည့်သွင်းခြင်း
+      # ၃။ MainActivity.kt ထည့်သွင်းခြင်း (Package Name ကို com.dataplus.charge_monitor သို့ ပြောင်းထားသည်)
       - name: Inject Native Kill, Alarm & WakeLock MainActivity
         run: |
-          cat << 'EOF' > android/app/src/main/kotlin/com/example/charge_monitor/MainActivity.kt
-          package com.example.charge_monitor
+          mkdir -p android/app/src/main/kotlin/com/dataplus/charge_monitor
+          cat << 'EOF' > android/app/src/main/kotlin/com/dataplus/charge_monitor/MainActivity.kt
+          package com.dataplus.charge_monitor
 
           import android.app.KeyguardManager
           import android.app.NotificationManager
@@ -238,12 +240,14 @@ jobs:
       - name: Build APK
         run: flutter build apk --release
 
-      # ၃။ ထွက်လာသော APK ဖိုင်အမည်ကို charge_monitor.apk အဖြစ် ပြောင်းလဲခြင်း
-      - name: Rename APK to charge_monitor.apk
+      # ၄။ တရားဝင် Release Signature (v2/v3 Signing) ကို APK ထဲသို့ ထိုးသွင်းခြင်း
+      - name: Sign APK with Release Certificate
         run: |
-          mv build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/charge_monitor.apk
+          keytool -genkeypair -v -keystore release.jks -alias releaseKey -keyalg RSA -keysize 2048 -validity 10000 -storepass 123456 -keypass 123456 -dname "CN=DataPlus, OU=Server, O=DataPlus, L=Yangon, ST=Yangon, C=MM"
+          BUILD_TOOLS=$(ls -d $ANDROID_HOME/build-tools/* | tail -1)
+          $BUILD_TOOLS/zipalign -v -p 4 build/app/outputs/flutter-apk/app-release.apk aligned.apk
+          $BUILD_TOOLS/apksigner sign --ks release.jks --ks-pass pass:123456 --key-pass pass:123456 --ks-key-alias releaseKey --out build/app/outputs/flutter-apk/charge_monitor.apk aligned.apk
 
-      # ၄။ Artifact Zip အမည်ကို charge_monitor အဖြစ် သတ်မှတ်ပေးခြင်း
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
