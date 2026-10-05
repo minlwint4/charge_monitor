@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io'; // exit(0) အတွက် ထည့်သွင်းထားသည်
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:battery_plus/battery_plus.dart';
@@ -43,7 +44,6 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
   }
 
   Future<void> initClient() async {
-    // Background Service ဖွင့်ခြင်း (Error တက်သော စာကြောင်း ဖယ်ရှားထားသည်)
     const androidConfig = FlutterBackgroundAndroidConfig(
       notificationTitle: "Charging Monitor",
       notificationText: "Battery data syncing in background...",
@@ -68,12 +68,10 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
 
     await sendUpdate();
 
-    // ၁၅ စက္ကန့် တစ်ကြိမ် Data ပို့ရန်
     _timer = Timer.periodic(const Duration(seconds: 15), (timer) {
       sendUpdate();
     });
 
-    // ကြိုးဖြုတ်/တပ်ချိန်ကို စောင့်ကြည့်ပြီး ချက်ချင်း Data ပို့ရန်
     _batteryStateSubscription = _battery.onBatteryStateChanged.listen((BatteryState state) {
       sendUpdate();
     });
@@ -109,6 +107,14 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
+        
+        // PC မှ ဖယ်ရှားလိုက်လျှင် App ကို အလိုအလျောက် ပိတ်မည့်စနစ်
+        if (data['command'] == 'close_app') {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.remove('uid'); // UID အဟောင်းကို ဖျက်မည်
+          exit(0); // App ကို ချက်ချင်း ပိတ်ချမည် (Background အပါအဝင် အကုန်သေသွားမည်)
+        }
+
         setState(() {
           assignedId = data['assigned_id'];
           syncStatus = "Connected (OK)";
