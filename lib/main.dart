@@ -6,6 +6,7 @@ import 'package:battery_plus/battery_plus.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
+import 'package:flutter_background/flutter_background.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -17,24 +18,23 @@ void main() {
 
 class BatteryMonitorClient extends StatefulWidget {
   const BatteryMonitorClient({super.key});
-
   @override
   State<BatteryMonitorClient> createState() => _BatteryMonitorClientState();
 }
 
 class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
-  // PC Server IP
   final String serverUrl = "http://10.10.10.10:5000/api/update";
-
   final Battery _battery = Battery();
+  
   String? deviceUid;
   String deviceName = "Android Phone";
   String? assignedId;
-
   int batteryLevel = 0;
-  String currentStatus = "not_charging"; // 'not_charging', 'charging', 'full'
+  String currentStatus = "not_charging";
   String syncStatus = "Connecting...";
+  
   Timer? _timer;
+  StreamSubscription<BatteryState>? _batteryStateSubscription;
 
   @override
   void initState() {
@@ -43,16 +43,26 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
   }
 
   Future<void> initClient() async {
-    final prefs = await SharedPreferences.getInstance();
+    // Background Service ဖွင့်ခြင်း
+    const androidConfig = FlutterBackgroundAndroidConfig(
+      notificationTitle: "Charging Monitor",
+      notificationText: "Battery data syncing in background...",
+      notificationImportance: AndroidNotificationImportance.min,
+      notificationIcon: AndroidResource(name: 'ic_launcher', defType: 'mipmap'),
+    );
+    bool hasPermissions = await FlutterBackground.initialize(androidConfig: androidConfig);
+    if (hasPermissions) {
+      await FlutterBackground.enableBackgroundExecution();
+    }
 
-    // Device UID (App သွင်းပြီး တစ်ကြိမ်သာ သတ်မှတ်သည်)
+    // UID နှင့် ဖုန်းအမည် ရယူခြင်း
+    final prefs = await SharedPreferences.getInstance();
     deviceUid = prefs.getString('uid');
     if (deviceUid == null) {
-      deviceUid = const Uuid().v4().substring(0, 8); // 8-char short ID
+      deviceUid = const Uuid().v4().substring(0, 8);
       await prefs.setString('uid', deviceUid!);
     }
 
-    // Phone Model ရယူခြင်း
     try {
       final androidInfo = await DeviceInfoPlugin().androidInfo;
       deviceName = "${androidInfo.brand.toUpperCase()} ${androidInfo.model}";
@@ -60,8 +70,14 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
 
     await sendUpdate();
 
-    // ၃၀ စက္ကန့်တစ်ကြိမ် Update ပို့သည် (CPU သက်သာစေရန်)
-    _timer = Timer.periodic(const Duration(seconds: 30), (timer) {
+    // ၁။ ၁၅ စက္ကန့် တစ်ကြိမ် ပုံမှန် ပို့မည့် Timer (Refresh time ပြင်ဆင်ပြီး)
+    _timer = Timer.periodic(const Duration(seconds: 15), (timer) {
+      sendUpdate();
+    });
+
+    // ၂။ ကြိုးဖြုတ်/တပ်ချိန်ကို စောင့်ကြည့်သည့် Listener (အရေးကြီးဆုံးအပိုင်း)
+    // CPU အိပ်နေရင်တောင် ကြိုးဖြုတ်လိုက်တဲ့ အခိုက်အတန့်မှာ App ကို နိုးပြီး Data ချက်ချင်းပို့ပေးပါမည်
+    _batteryStateSubscription = _battery.onBatteryStateChanged.listen((BatteryState state) {
       sendUpdate();
     });
   }
@@ -102,15 +118,14 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
         });
       }
     } catch (e) {
-      setState(() {
-        syncStatus = "Connection Lost / Retrying...";
-      });
+      setState(() { syncStatus = "Connection Lost / Retrying..."; });
     }
   }
 
   @override
   void dispose() {
     _timer?.cancel();
+    _batteryStateSubscription?.cancel();
     super.dispose();
   }
 
@@ -138,45 +153,20 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
               children: [
                 Text(
                   assignedId ?? "WAITING FOR ID...",
-                  style: TextStyle(
-                    fontSize: 48,
-                    fontWeight: FontWeight.bold,
-                    color: assignedId != null ? Colors.yellowAccent : Colors.white38,
-                    letterSpacing: 2,
-                  ),
+                  style: TextStyle(fontSize: 48, fontWeight: FontWeight.bold, color: assignedId != null ? Colors.yellowAccent : Colors.white38),
                 ),
                 const SizedBox(height: 10),
-                Text(
-                  deviceName,
-                  style: const TextStyle(color: Colors.white70, fontSize: 16),
-                ),
+                Text(deviceName, style: const TextStyle(color: Colors.white70, fontSize: 16)),
                 const SizedBox(height: 30),
-                Text(
-                  "$batteryLevel%",
-                  style: const TextStyle(
-                    fontSize: 72,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                  ),
-                ),
+                Text("$batteryLevel%", style: const TextStyle(fontSize: 72, fontWeight: FontWeight.bold, color: Colors.white)),
                 const SizedBox(height: 10),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: statusColor.withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: statusColor, width: 1.5),
-                  ),
-                  child: Text(
-                    statusText,
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: statusColor),
-                  ),
+                  decoration: BoxDecoration(color: statusColor.withOpacity(0.15), borderRadius: BorderRadius.circular(20), border: Border.all(color: statusColor, width: 1.5)),
+                  child: Text(statusText, style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: statusColor)),
                 ),
                 const SizedBox(height: 40),
-                Text(
-                  syncStatus,
-                  style: const TextStyle(color: Colors.white30, fontSize: 12),
-                ),
+                Text(syncStatus, style: const TextStyle(color: Colors.white30, fontSize: 12)),
               ],
             ),
           ),
