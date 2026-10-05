@@ -25,17 +25,17 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: Recreate Android & Fix SDK Versions
+      - name: Recreate Android & Set SDK 36
         run: |
           # Android folder ကို အသစ်ပြန်ဆောက်သည်
           rm -rf android
           flutter create . --platforms=android
 
-          # compileSdk 34, minSdk 21 နှင့် Internet Permission များကို တစ်ခါတည်း သတ်မှတ်သည်
+          # compileSdk 36, minSdk 21 နှင့် Internet Permission ထည့်သွင်းသည်
           python3 -c "
           import glob, os
 
-          # 1. Internet Permission ထည့်သွင်းခြင်း
+          # 1. Internet Permission ထည့်ခြင်း
           manifest = 'android/app/src/main/AndroidManifest.xml'
           if os.path.exists(manifest):
               text = open(manifest).read()
@@ -43,11 +43,11 @@ jobs:
                   text = text.replace('<application', '<uses-permission android:name=\"android.permission.INTERNET\"/>\n    <application')
                   open(manifest, 'w').write(text)
 
-          # 2. compileSdk 34 နှင့် minSdk 21 သို့ ပြောင်းလဲခြင်း
+          # 2. compileSdk 36 နှင့် minSdk 21 သတ်မှတ်ခြင်း (build.gradle နှင့် build.gradle.kts နှစ်မျိုးလုံးအတွက်)
           for f in glob.glob('android/app/build.gradle*'):
               c = open(f).read()
-              c = c.replace('compileSdk = flutter.compileSdkVersion', 'compileSdk = 34')
-              c = c.replace('compileSdkVersion flutter.compileSdkVersion', 'compileSdkVersion 34')
+              c = c.replace('compileSdk = flutter.compileSdkVersion', 'compileSdk = 36')
+              c = c.replace('compileSdkVersion flutter.compileSdkVersion', 'compileSdkVersion 36')
               c = c.replace('minSdk = flutter.minSdkVersion', 'minSdk = 21')
               c = c.replace('minSdkVersion flutter.minSdkVersion', 'minSdkVersion 21')
               open(f, 'w').write(c)
