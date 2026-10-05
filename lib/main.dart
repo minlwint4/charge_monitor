@@ -43,7 +43,6 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
   Timer? _timer;
   StreamSubscription<BatteryState>? _batteryStateSubscription;
 
-  // Visual Alert (၁၀ စက္ကန့် မီးရောင်) အတွက် State များ
   bool isAlerting = false;
   Color flashColor = Colors.redAccent;
   Color flashTextColor = Colors.white;
@@ -55,7 +54,7 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
   }
 
   Future<void> initClient() async {
-    // ၁။ ဖုန်းတိုင်းတွင် အမြဲတမ်း UID တစ်ခုတည်းသာ ရှိစေမည် (ဘယ်တော့မှ မဖျက်ပါ)
+    // ဖုန်းစက်၏ Hardware UID ကို အမြဲတမ်း တစ်ခုတည်းသာ သိမ်းထားမည်
     final prefs = await SharedPreferences.getInstance();
     deviceUid = prefs.getString('phone_permanent_uid');
     if (deviceUid == null) {
@@ -68,7 +67,7 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
       deviceName = "${androidInfo.brand.toUpperCase()} ${androidInfo.model}";
     } catch (_) {}
 
-    // ၂။ Background Foreground Service စတင်မည်
+    // Background Foreground Service စတင်မည်
     const androidConfig = FlutterBackgroundAndroidConfig(
       notificationTitle: "Charging Monitor",
       notificationText: "Battery monitoring is active...",
@@ -93,7 +92,7 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
     });
   }
 
-  // မျက်နှာပြင် မီးတဖျတ်ဖျတ် လင်းလက်ပြသမည့် စနစ် (၁၀ စက္ကန့် အပြည့်)
+  // ၁၀ စက္ကန့် အပြည့် မီးရောင်ပြသမည့် စနစ်
   Future<void> startFlashingBeacon() async {
     setState(() {
       isAlerting = true;
@@ -118,9 +117,9 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
     }
   }
 
-  // App ကို Background Service ၊ Notification ရော Process ပါ လုံးဝ အပြီးသတ် ပိတ်ချမည့် စနစ်
+  // App ကို နောက်ကွယ် Service ရော အကုန်လုံးပါ လုံးဝ အပြီးသတ် ပိတ်ချမည့် စနစ်
   Future<void> terminateAppCompletely({bool flashFirst = false}) async {
-    // ၁။ Timer နှင့် Event Listener များကို ချက်ချင်း ရပ်တန့်မည်
+    // ၁။ Timer များကို ချက်ချင်း ရပ်မည်
     _timer?.cancel();
     _timer = null;
     _batteryStateSubscription?.cancel();
@@ -133,18 +132,20 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
 
     // ၃။ Background Foreground Service နှင့် Notification ကို အပြီးတိုင် ဖျက်ချမည်
     try {
-      await FlutterBackground.disableBackgroundExecution();
+      if (FlutterBackground.isBackgroundExecutionEnabled) {
+        await FlutterBackground.disableBackgroundExecution();
+      }
     } catch (_) {}
 
-    // Android OS က Service ကို Unbind လုပ်ပြီး Notification ဖြုတ်ချနိုင်ရန် ခေတ္တ စောင့်မည်
-    await Future.delayed(const Duration(milliseconds: 600));
+    // Android OS က Notification နှင့် Service ကို အပြီးသတ် ဖယ်ရှားနိုင်ရန် စက္ကန့်ဝက် စောင့်မည်
+    await Future.delayed(const Duration(milliseconds: 500));
 
-    // ၄။ SystemNavigator ဖြင့် မျက်နှာပြင်မှ ဖယ်ရှားပြီး exit(0) ဖြင့် Process ကို လုံးဝ သတ်ပစ်မည်
+    // ၄။ Screen မှ ထွက်ပြီး Process တစ်ခုလုံးကို လုံးဝ သတ်ပစ်မည်
     try {
       await SystemNavigator.pop();
     } catch (_) {}
 
-    exit(0); // App ကို လုံးဝ (၁၀၀%) အပြီးသတ် သတ်ပစ်မည်
+    exit(0);
   }
 
   Future<void> sendUpdate() async {
@@ -231,7 +232,6 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
 
   @override
   Widget build(BuildContext context) {
-    // Pickup လုပ်ချိန်တွင် ပြသမည့် Visual Alert Screen (၁၀ စက္ကန့် မီးရောင်)
     if (isAlerting) {
       return Scaffold(
         backgroundColor: flashColor,
@@ -285,7 +285,6 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
       statusText = "⚡ CHARGING";
     }
 
-    // ဖုန်း၏ Back ခလုတ် နှိပ်လျှင်လည်း အလိုအလျောက် သန့်ရှင်းစွာ ပိတ်ပေးမည့် စနစ်
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, result) {
@@ -327,7 +326,7 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
                   Text(syncStatus, style: const TextStyle(color: Colors.white30, fontSize: 12)),
                   const SizedBox(height: 40),
 
-                  // App အား Notification ရော Background Process ပါ လုံးဝ ပိတ်ချမည့် ခလုတ်
+                  // EXIT APP ခလုတ်
                   ElevatedButton.icon(
                     onPressed: () => terminateAppCompletely(flashFirst: false),
                     icon: const Icon(Icons.power_settings_new, color: Colors.white, size: 22),
