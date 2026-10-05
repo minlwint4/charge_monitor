@@ -1,19 +1,9 @@
-name: battery_monitor
-description: "Battery charging monitor client"
-publish_to: 'none'
-version: 1.0.0+1
-
-environment:
-  sdk: '>=3.0.0 <4.0.0'
-
 dependencies:
   flutter:
     sdk: flutter
   http: ^1.2.0
-  battery_plus: ^5.0.3
+  battery_plus: ^6.1.0
   device_info_plus: ^10.1.0
   shared_preferences: ^2.2.2
   uuid: ^4.3.3
-
-flutter:
-  uses-material-design: true
+  flutter_background: ^1.2.1
