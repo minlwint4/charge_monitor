@@ -121,19 +121,19 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
           if (response.statusCode == 200) {
             final data = jsonDecode(response.body);
             
-            // Excel မှ Dropoff လှမ်းလုပ်လိုက်သောအခါ (Alarm မြည်ပြီး App ပိတ်မည်)
+            // Excel မှ Dropoff လှမ်းလုပ်လိုက်သောအခါ (အသံ ၃ စက္ကန့်မြည်ပြီး ပိတ်မည်)
             if (data['command'] == 'alarm_and_close') {
               final prefs = await SharedPreferences.getInstance();
               await prefs.remove('uid');
               
-              FlutterRingtonePlayer().playAlarm();
-              await Future.delayed(const Duration(seconds: 3));
-              FlutterRingtonePlayer().stop();
+              FlutterRingtonePlayer().playAlarm(); 
+              await Future.delayed(const Duration(seconds: 3)); 
+              FlutterRingtonePlayer().stop(); 
               
-              exit(0);
+              exit(0); 
             }
-
-            // PC မှ Delete (✕) နှိပ်သောအခါ (App အသံတိတ် ပိတ်မည်)
+            
+            // PC မှ Delete (✕) နှိပ်သောအခါ
             if (data['command'] == 'close_app') {
               final prefs = await SharedPreferences.getInstance();
               await prefs.remove('uid');
