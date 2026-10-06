@@ -62,11 +62,20 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
   @override
   void initState() {
     super.initState();
+    setupNativeListener();
     initClient();
     startDotAnimation();
   }
 
-  // အစက်များ လှုပ်ရှားပြေးနေမည့် စနစ်
+  // Native ကနေ Permission ရပြီဟု အကြောင်းကြားလာပါက Foreground Notification ချက်ချင်း ဖွင့်မည့် စနစ်
+  void setupNativeListener() {
+    platform.setMethodCallHandler((call) async {
+      if (call.method == 'onNotificationPermissionGranted') {
+        await startForegroundNotification();
+      }
+    });
+  }
+
   void startDotAnimation() {
     _dotTimer = Timer.periodic(const Duration(milliseconds: 350), (timer) {
       if (mounted && assignedId == null) {
@@ -75,6 +84,22 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
         });
       }
     });
+  }
+
+  Future<void> startForegroundNotification() async {
+    try {
+      const androidConfig = FlutterBackgroundAndroidConfig(
+        notificationTitle: "Charging Station Active",
+        notificationText: "စက်အားသွင်းမှု စောင့်ကြည့်နေပါသည်...",
+        notificationImportance: AndroidNotificationImportance.high,
+        notificationIcon: AndroidResource(name: 'ic_launcher', defType: 'mipmap'),
+      );
+      
+      bool hasPermissions = await FlutterBackground.initialize(androidConfig: androidConfig);
+      if (hasPermissions) {
+        await FlutterBackground.enableBackgroundExecution();
+      }
+    } catch (_) {}
   }
 
   Future<void> initClient() async {
@@ -90,18 +115,13 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
       deviceName = "${androidInfo.brand.toUpperCase()} ${androidInfo.model}";
     } catch (_) {}
 
-    const androidConfig = FlutterBackgroundAndroidConfig(
-      notificationTitle: "Charging Monitor",
-      notificationText: "Battery monitoring is active...",
-      notificationIcon: AndroidResource(name: 'ic_launcher', defType: 'mipmap'),
-    );
+    // စတင်ချိန်တွင် Notification တစ်ခါ ဖွင့်ရန် ကြိုးစားမည်
+    await startForegroundNotification();
     
-    try {
-      bool hasPermissions = await FlutterBackground.initialize(androidConfig: androidConfig);
-      if (hasPermissions) {
-        await FlutterBackground.enableBackgroundExecution();
-      }
-    } catch (_) {}
+    // လူက Allow နှိပ်ဖို့ ၂ စက္ကန့် စောင့်ပြီး နောက်တစ်ကြိမ် ထပ်မံအတည်ပြုဖွင့်မည်
+    Future.delayed(const Duration(seconds: 2), () {
+      startForegroundNotification();
+    });
 
     await sendUpdate();
 
@@ -114,7 +134,6 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
     });
   }
 
-  // ၁၅ စက္ကန့် အပြည့် Alarm မြည်ပြီး မီးလင်းမည့် စနစ်
   Future<void> startFlashingBeacon() async {
     setState(() {
       isAlerting = true;
@@ -316,7 +335,6 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  // ID ရရှိပါက ID ပြသမည်၊ မရသေးပါက အစက်များသာ လှုပ်ရှားပြေးနေမည်
                   SizedBox(
                     height: 60,
                     child: Center(
