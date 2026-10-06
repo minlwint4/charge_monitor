@@ -44,7 +44,15 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
   
   Timer? _timer;
   Timer? _dotTimer;
-  int _dotCount = 0;
+  int _dotIndex = 0;
+  final List<String> dotPatterns = [
+    ".",
+    ". .",
+    ". . .",
+    ". . . .",
+    ". . . . .",
+    ". . . . . .",
+  ];
   StreamSubscription<BatteryState>? _batteryStateSubscription;
 
   bool isAlerting = false;
@@ -58,12 +66,12 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
     startDotAnimation();
   }
 
-  // WAITING FOR ID အစက်များ လှုပ်ရှားပြေးနေမည့် စနစ်
+  // အစက်များ လှုပ်ရှားပြေးနေမည့် စနစ်
   void startDotAnimation() {
-    _dotTimer = Timer.periodic(const Duration(milliseconds: 400), (timer) {
+    _dotTimer = Timer.periodic(const Duration(milliseconds: 350), (timer) {
       if (mounted && assignedId == null) {
         setState(() {
-          _dotCount = (_dotCount + 1) % 6; // အစက် ၀ မှ ၅ စက်အထိ ပြေးမည်
+          _dotIndex = (_dotIndex + 1) % dotPatterns.length;
         });
       }
     });
@@ -106,7 +114,7 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
     });
   }
 
-  // ၁၅ စက္ကန့် အပြည့် Alarm မြည်ပြီး မီးလင်းမည့် စနစ် (၄၅ ကြိမ် x ၃၃၃ms = ၁၅ စက္ကန့်)
+  // ၁၅ စက္ကန့် အပြည့် Alarm မြည်ပြီး မီးလင်းမည့် စနစ်
   Future<void> startFlashingBeacon() async {
     setState(() {
       isAlerting = true;
@@ -293,9 +301,6 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
       statusText = "⚡ CHARGING";
     }
 
-    // WAITING FOR ID နောက်တွင် အစက်များ တိုးလာ/လျော့သွားစေခြင်း
-    final waitingString = "WAITING FOR ID${'.' * _dotCount}";
-
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, result) {
@@ -311,17 +316,23 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Text(
-                    assignedId ?? waitingString,
-                    style: TextStyle(
-                      fontSize: assignedId != null ? 48 : 30,
-                      fontWeight: FontWeight.bold,
-                      color: assignedId != null ? Colors.yellowAccent : Colors.white60,
-                      letterSpacing: 1.5,
+                  // ID ရရှိပါက ID ပြသမည်၊ မရသေးပါက အစက်များသာ လှုပ်ရှားပြေးနေမည်
+                  SizedBox(
+                    height: 60,
+                    child: Center(
+                      child: Text(
+                        assignedId ?? dotPatterns[_dotIndex],
+                        style: TextStyle(
+                          fontSize: assignedId != null ? 52 : 36,
+                          fontWeight: FontWeight.bold,
+                          color: assignedId != null ? Colors.yellowAccent : Colors.white70,
+                          letterSpacing: assignedId != null ? 2.0 : 4.0,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
                     ),
-                    textAlign: TextAlign.center,
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 8),
                   Text(deviceName, style: const TextStyle(color: Colors.white70, fontSize: 16)),
                   const SizedBox(height: 24),
                   Text("$batteryLevel%", style: const TextStyle(fontSize: 72, fontWeight: FontWeight.bold, color: Colors.white)),
