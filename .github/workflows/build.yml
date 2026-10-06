@@ -30,8 +30,8 @@ jobs:
           rm -rf android
           flutter create . --platforms android --org com.dataplus
 
-      # ၁။ POST_NOTIFICATIONS Permission အပါအဝင် AndroidManifest ထည့်သွင်းခြင်း
-      - name: Inject AndroidManifest with POST_NOTIFICATIONS Permission
+      # ၁။ Android 14 Foreground Service Type နှင့် Permissions အပြည့်အစုံ ထည့်သွင်းခြင်း
+      - name: Inject AndroidManifest with Foreground Service Type
         run: |
           cat << 'EOF' > android/app/src/main/AndroidManifest.xml
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
@@ -40,6 +40,8 @@ jobs:
               <uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>
               <uses-permission android:name="android.permission.WAKE_LOCK"/>
               <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
+              <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
               <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
               <uses-permission android:name="android.permission.VIBRATE"/>
               <uses-permission android:name="android.permission.DISABLE_KEYGUARD"/>
@@ -69,6 +71,13 @@ jobs:
                           <category android:name="android.intent.category.LAUNCHER"/>
                       </intent-filter>
                   </activity>
+
+                  <!-- Android 14 Background Service အလုပ်လုပ်ခွင့်ပြုချက် -->
+                  <service
+                      android:name="de.julianassmann.flutter_background.IsolateHolderService"
+                      android:foregroundServiceType="dataSync"
+                      android:exported="false" />
+
                   <meta-data
                       android:name="flutterEmbedding"
                       android:value="2" />
@@ -76,7 +85,7 @@ jobs:
           </manifest>
           EOF
 
-      # ၂။ Android 13+ Notification Auto-Prompt နှင့် KeepAlive Locks ပါဝင်သော MainActivity.kt
+      # ၂။ Allow နှိပ်လိုက်သည်နှင့် Flutter ဆီ အသိပေးမည့် MainActivity.kt
       - name: Inject Native MainActivity
         run: |
           mkdir -p android/app/src/main/kotlin/com/dataplus/charge_monitor
@@ -113,15 +122,14 @@ jobs:
               override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
                   super.configureFlutterEngine(flutterEngine)
 
-                  // Android 13+ (API 33+) ဖုန်းများတွင် Notification ခွင့်ပြုချက် အလိုအလျောက် တောင်းခံခြင်း
+                  acquireKeepAliveLocks()
+
+                  // Android 13+ Notification ခွင့်ပြုချက် တောင်းခံခြင်း
                   if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                       if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                           requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 101)
                       }
                   }
-
-                  // Screen Lock ကျနေချိန် Wi-Fi နှင့် CPU မအိပ်စေရန် Lock စတင်ရယူခြင်း
-                  acquireKeepAliveLocks()
 
                   MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
                       when (call.method) {
@@ -163,6 +171,16 @@ jobs:
                   }
               }
 
+              // Popup မှ Allow နှိပ်လိုက်သည်နှင့် Flutter ထဲသို့ ချက်ချင်း အချက်ပြပေးမည့် စနစ်
+              override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+                  super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+                  if (requestCode == 101 && grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                      flutterEngine?.dartExecutor?.binaryMessenger?.let { messenger ->
+                          MethodChannel(messenger, CHANNEL).invokeMethod("onNotificationPermissionGranted", null)
+                      }
+                  }
+              }
+
               private fun acquireKeepAliveLocks() {
                   try {
                       val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
@@ -194,7 +212,7 @@ jobs:
                           PowerManager.ON_AFTER_RELEASE,
                           "charge_monitor:BeaconWakeLock"
                       ).apply {
-                          acquire(18 * 1000L) // Alarm ၁၅ စက္ကန့်အတွက် မီးလင်းထားမည်
+                          acquire(18 * 1000L)
                       }
 
                       runOnUiThread {
