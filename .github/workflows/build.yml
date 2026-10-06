@@ -37,7 +37,6 @@ jobs:
               <uses-permission android:name="android.permission.INTERNET"/>
               <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
               <uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>
-              <uses-permission android:name="android.permission.CHANGE_WIFI_STATE"/>
               <uses-permission android:name="android.permission.WAKE_LOCK"/>
               <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
               <uses-permission android:name="android.permission.VIBRATE"/>
@@ -102,10 +101,16 @@ jobs:
           class MainActivity: FlutterActivity() {
               private val CHANNEL = "com.example.charge_monitor/app_control"
               private var mediaPlayer: MediaPlayer? = null
-              private var wakeLock: PowerManager.WakeLock? = null
+              private var beaconWakeLock: PowerManager.WakeLock? = null
+              private var keepAliveCpuLock: PowerManager.WakeLock? = null
+              private var keepAliveWifiLock: WifiManager.WifiLock? = null
 
               override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
                   super.configureFlutterEngine(flutterEngine)
+
+                  // Screen Lock ချထားသော်လည်း Wi-Fi နှင့် CPU မအိပ်စေရန် Lock စတင်ရယူခြင်း
+                  acquireKeepAliveLocks()
+
                   MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
                       when (call.method) {
                           "startAlarm" -> {
@@ -115,18 +120,14 @@ jobs:
                           }
                           "stopAlarm" -> {
                               stopAlarmSound()
-                              releaseWakeLock()
+                              releaseBeaconWakeLock()
                               result.success(true)
                           }
                           "killAppLikeSwipe" -> {
                               result.success(true)
                               stopAlarmSound()
-                              releaseWakeLock()
-
-                              try {
-                                  val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
-                                  wifiManager.disconnect()
-                              } catch (_: Exception) {}
+                              releaseBeaconWakeLock()
+                              releaseKeepAliveLocks()
 
                               try {
                                   val serviceIntent = Intent(this, Class.forName("de.julianassmann.flutter_background.IsolateHolderService"))
@@ -150,16 +151,39 @@ jobs:
                   }
               }
 
+              // Lock Screen တွင် Wi-Fi လိုင်းမပြတ်စေမည့် စနစ်
+              private fun acquireKeepAliveLocks() {
+                  try {
+                      val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+                      keepAliveCpuLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "charge_monitor:KeepAliveCpu").apply {
+                          acquire()
+                      }
+                      val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+                      keepAliveWifiLock = wifiManager.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "charge_monitor:KeepAliveWifi").apply {
+                          acquire()
+                      }
+                  } catch (_: Exception) {}
+              }
+
+              private fun releaseKeepAliveLocks() {
+                  try {
+                      if (keepAliveCpuLock?.isHeld == true) keepAliveCpuLock?.release()
+                      keepAliveCpuLock = null
+                      if (keepAliveWifiLock?.isHeld == true) keepAliveWifiLock?.release()
+                      keepAliveWifiLock = null
+                  } catch (_: Exception) {}
+              }
+
               private fun wakeUpScreen() {
                   try {
                       val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
-                      wakeLock = powerManager.newWakeLock(
+                      beaconWakeLock = powerManager.newWakeLock(
                           PowerManager.SCREEN_BRIGHT_WAKE_LOCK or
                           PowerManager.ACQUIRE_CAUSES_WAKEUP or
                           PowerManager.ON_AFTER_RELEASE,
                           "charge_monitor:BeaconWakeLock"
                       ).apply {
-                          acquire(18 * 1000L) // Alarm ၁၅ စက္ကန့်အတွက် မီးလင်းထားမည်
+                          acquire(18 * 1000L)
                       }
 
                       runOnUiThread {
@@ -182,12 +206,12 @@ jobs:
                   } catch (_: Exception) {}
               }
 
-              private fun releaseWakeLock() {
+              private fun releaseBeaconWakeLock() {
                   try {
-                      if (wakeLock?.isHeld == true) {
-                          wakeLock?.release()
+                      if (beaconWakeLock?.isHeld == true) {
+                          beaconWakeLock?.release()
                       }
-                      wakeLock = null
+                      beaconWakeLock = null
                   } catch (_: Exception) {}
               }
 
@@ -233,7 +257,8 @@ jobs:
 
               override fun onDestroy() {
                   stopAlarmSound()
-                  releaseWakeLock()
+                  releaseBeaconWakeLock()
+                  releaseKeepAliveLocks()
                   super.onDestroy()
               }
           }
