@@ -30,8 +30,7 @@ jobs:
           rm -rf android
           flutter create . --platforms android --org com.dataplus
 
-      # ၁။ Wi-Fi ဖြတ်တောက်ခွင့် Permission များ အပါအဝင် AndroidManifest ထည့်သွင်းခြင်း
-      - name: Inject AndroidManifest
+      - name: Inject AndroidManifest with Lockscreen Wakeup Permission
         run: |
           cat << 'EOF' > android/app/src/main/AndroidManifest.xml
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
@@ -76,7 +75,6 @@ jobs:
           </manifest>
           EOF
 
-      # ၂။ Wi-Fi Disconnect စနစ်ပါဝင်သော MainActivity.kt ကို ထည့်သွင်းခြင်း
       - name: Inject Native MainActivity
         run: |
           mkdir -p android/app/src/main/kotlin/com/dataplus/charge_monitor
@@ -125,25 +123,23 @@ jobs:
                               stopAlarmSound()
                               releaseWakeLock()
 
-                              // ၁။ Wi-Fi လိုင်းကို ဖြုတ်ချမည် (Disconnect)
-                              disconnectWifi()
+                              try {
+                                  val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+                                  wifiManager.disconnect()
+                              } catch (_: Exception) {}
 
-                              // ၂။ Background Service ကို ရပ်တန့်မည်
                               try {
                                   val serviceIntent = Intent(this, Class.forName("de.julianassmann.flutter_background.IsolateHolderService"))
                                   stopService(serviceIntent)
-                              } catch (e: Exception) {}
+                              } catch (_: Exception) {}
 
-                              // ၃။ Notification အားလုံးကို ဖျက်မည်
                               try {
                                   val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
                                   notificationManager.cancelAll()
-                              } catch (e: Exception) {}
+                              } catch (_: Exception) {}
 
-                              // ၄။ Tab ကို အပြီးသတ် ဖယ်ရှားမည်
                               finishAndRemoveTask()
 
-                              // ၅။ Process ကို အပြီးသတ် သတ်ပစ်မည်
                               Handler(Looper.getMainLooper()).postDelayed({
                                   Process.killProcess(Process.myPid())
                                   System.exit(0)
@@ -152,16 +148,6 @@ jobs:
                           else -> result.notImplemented()
                       }
                   }
-              }
-
-              private fun disconnectWifi() {
-                  try {
-                      val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
-                      // Wi-Fi ချိတ်ဆက်မှု ဖြုတ်ချခြင်း
-                      wifiManager.disconnect()
-                      @Suppress("DEPRECATION")
-                      wifiManager.isWifiEnabled = false
-                  } catch (e: Exception) {}
               }
 
               private fun wakeUpScreen() {
@@ -173,7 +159,7 @@ jobs:
                           PowerManager.ON_AFTER_RELEASE,
                           "charge_monitor:BeaconWakeLock"
                       ).apply {
-                          acquire(12 * 1000L)
+                          acquire(18 * 1000L) // Alarm ၁၅ စက္ကန့်အတွက် မီးလင်းထားမည်
                       }
 
                       runOnUiThread {
@@ -193,7 +179,7 @@ jobs:
                           }
                           window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                       }
-                  } catch (e: Exception) {}
+                  } catch (_: Exception) {}
               }
 
               private fun releaseWakeLock() {
@@ -202,7 +188,7 @@ jobs:
                           wakeLock?.release()
                       }
                       wakeLock = null
-                  } catch (e: Exception) {}
+                  } catch (_: Exception) {}
               }
 
               private fun startAlarmSound() {
@@ -224,7 +210,7 @@ jobs:
                           prepare()
                           start()
                       }
-                  } catch (e: Exception) {
+                  } catch (_: Exception) {
                       try {
                           val fallbackUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
                           mediaPlayer = MediaPlayer.create(applicationContext, fallbackUri)?.apply {
@@ -259,12 +245,9 @@ jobs:
       - name: Build APK
         run: flutter build apk --release
 
-      - name: Sign APK with Release Certificate
+      - name: Rename APK to charge_monitor.apk
         run: |
-          keytool -genkeypair -v -keystore release.jks -alias releaseKey -keyalg RSA -keysize 2048 -validity 10000 -storepass 123456 -keypass 123456 -dname "CN=DataPlus, OU=Server, O=DataPlus, L=Yangon, ST=Yangon, C=MM"
-          BUILD_TOOLS=$(ls -d $ANDROID_HOME/build-tools/* | tail -1)
-          $BUILD_TOOLS/zipalign -v -p 4 build/app/outputs/flutter-apk/app-release.apk aligned.apk
-          $BUILD_TOOLS/apksigner sign --ks release.jks --ks-pass pass:123456 --key-pass pass:123456 --ks-key-alias releaseKey --out build/app/outputs/flutter-apk/charge_monitor.apk aligned.apk
+          mv build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/charge_monitor.apk
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
