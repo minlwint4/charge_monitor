@@ -25,19 +25,20 @@ jobs:
           channel: 'stable'
           cache: true
 
-      # ၁။ com.example အစား သီးသန့် Package Name အသစ်ဖြင့် တည်ဆောက်ခြင်း
       - name: Recreate Android with V2 Embedding
         run: |
           rm -rf android
           flutter create . --platforms android --org com.dataplus
 
-      # ၂။ AndroidManifest ထည့်သွင်းခြင်း
-      - name: Inject AndroidManifest with Lockscreen Wakeup Permission
+      # ၁။ Wi-Fi ဖြတ်တောက်ခွင့် Permission များ အပါအဝင် AndroidManifest ထည့်သွင်းခြင်း
+      - name: Inject AndroidManifest
         run: |
           cat << 'EOF' > android/app/src/main/AndroidManifest.xml
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
               <uses-permission android:name="android.permission.INTERNET"/>
               <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+              <uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>
+              <uses-permission android:name="android.permission.CHANGE_WIFI_STATE"/>
               <uses-permission android:name="android.permission.WAKE_LOCK"/>
               <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
               <uses-permission android:name="android.permission.VIBRATE"/>
@@ -75,8 +76,8 @@ jobs:
           </manifest>
           EOF
 
-      # ၃။ MainActivity.kt ထည့်သွင်းခြင်း (Package Name ကို com.dataplus.charge_monitor သို့ ပြောင်းထားသည်)
-      - name: Inject Native Kill, Alarm & WakeLock MainActivity
+      # ၂။ Wi-Fi Disconnect စနစ်ပါဝင်သော MainActivity.kt ကို ထည့်သွင်းခြင်း
+      - name: Inject Native MainActivity
         run: |
           mkdir -p android/app/src/main/kotlin/com/dataplus/charge_monitor
           cat << 'EOF' > android/app/src/main/kotlin/com/dataplus/charge_monitor/MainActivity.kt
@@ -89,6 +90,7 @@ jobs:
           import android.media.AudioAttributes
           import android.media.MediaPlayer
           import android.media.RingtoneManager
+          import android.net.wifi.WifiManager
           import android.os.Build
           import android.os.Handler
           import android.os.Looper
@@ -123,18 +125,25 @@ jobs:
                               stopAlarmSound()
                               releaseWakeLock()
 
+                              // ၁။ Wi-Fi လိုင်းကို ဖြုတ်ချမည် (Disconnect)
+                              disconnectWifi()
+
+                              // ၂။ Background Service ကို ရပ်တန့်မည်
                               try {
                                   val serviceIntent = Intent(this, Class.forName("de.julianassmann.flutter_background.IsolateHolderService"))
                                   stopService(serviceIntent)
                               } catch (e: Exception) {}
 
+                              // ၃။ Notification အားလုံးကို ဖျက်မည်
                               try {
                                   val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
                                   notificationManager.cancelAll()
                               } catch (e: Exception) {}
 
+                              // ၄။ Tab ကို အပြီးသတ် ဖယ်ရှားမည်
                               finishAndRemoveTask()
 
+                              // ၅။ Process ကို အပြီးသတ် သတ်ပစ်မည်
                               Handler(Looper.getMainLooper()).postDelayed({
                                   Process.killProcess(Process.myPid())
                                   System.exit(0)
@@ -143,6 +152,16 @@ jobs:
                           else -> result.notImplemented()
                       }
                   }
+              }
+
+              private fun disconnectWifi() {
+                  try {
+                      val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+                      // Wi-Fi ချိတ်ဆက်မှု ဖြုတ်ချခြင်း
+                      wifiManager.disconnect()
+                      @Suppress("DEPRECATION")
+                      wifiManager.isWifiEnabled = false
+                  } catch (e: Exception) {}
               }
 
               private fun wakeUpScreen() {
@@ -240,7 +259,6 @@ jobs:
       - name: Build APK
         run: flutter build apk --release
 
-      # ၄။ တရားဝင် Release Signature (v2/v3 Signing) ကို APK ထဲသို့ ထိုးသွင်းခြင်း
       - name: Sign APK with Release Certificate
         run: |
           keytool -genkeypair -v -keystore release.jks -alias releaseKey -keyalg RSA -keysize 2048 -validity 10000 -storepass 123456 -keypass 123456 -dname "CN=DataPlus, OU=Server, O=DataPlus, L=Yangon, ST=Yangon, C=MM"
