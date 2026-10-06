@@ -67,7 +67,6 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
     startDotAnimation();
   }
 
-  // Native ကနေ Permission ရပြီဟု အကြောင်းကြားလာပါက Foreground Notification ချက်ချင်း ဖွင့်မည့် စနစ်
   void setupNativeListener() {
     platform.setMethodCallHandler((call) async {
       if (call.method == 'onNotificationPermissionGranted') {
@@ -86,11 +85,12 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
     });
   }
 
+  // Notification စာသားအား Charging Station ဟုသာ သတ်မှတ်ခြင်း
   Future<void> startForegroundNotification() async {
     try {
       const androidConfig = FlutterBackgroundAndroidConfig(
-        notificationTitle: "Charging Station Active",
-        notificationText: "စက်အားသွင်းမှု စောင့်ကြည့်နေပါသည်...",
+        notificationTitle: "Charging Station",
+        notificationText: "Charging Station",
         notificationImportance: AndroidNotificationImportance.high,
         notificationIcon: AndroidResource(name: 'ic_launcher', defType: 'mipmap'),
       );
@@ -115,10 +115,8 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
       deviceName = "${androidInfo.brand.toUpperCase()} ${androidInfo.model}";
     } catch (_) {}
 
-    // စတင်ချိန်တွင် Notification တစ်ခါ ဖွင့်ရန် ကြိုးစားမည်
     await startForegroundNotification();
     
-    // လူက Allow နှိပ်ဖို့ ၂ စက္ကန့် စောင့်ပြီး နောက်တစ်ကြိမ် ထပ်မံအတည်ပြုဖွင့်မည်
     Future.delayed(const Duration(seconds: 2), () {
       startForegroundNotification();
     });
@@ -134,6 +132,7 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
     });
   }
 
+  // ၁၅ စက္ကန့် အပြည့် Alarm မြည်ပြီး မီးလင်းမည့် စနစ်
   Future<void> startFlashingBeacon() async {
     setState(() {
       isAlerting = true;
