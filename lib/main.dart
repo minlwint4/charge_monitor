@@ -43,6 +43,8 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
   String syncStatus = "Connecting...";
   
   Timer? _timer;
+  Timer? _dotTimer;
+  int _dotCount = 0;
   StreamSubscription<BatteryState>? _batteryStateSubscription;
 
   bool isAlerting = false;
@@ -53,6 +55,18 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
   void initState() {
     super.initState();
     initClient();
+    startDotAnimation();
+  }
+
+  // WAITING FOR ID အစက်များ လှုပ်ရှားပြေးနေမည့် စနစ်
+  void startDotAnimation() {
+    _dotTimer = Timer.periodic(const Duration(milliseconds: 400), (timer) {
+      if (mounted && assignedId == null) {
+        setState(() {
+          _dotCount = (_dotCount + 1) % 6; // အစက် ၀ မှ ၅ စက်အထိ ပြေးမည်
+        });
+      }
+    });
   }
 
   Future<void> initClient() async {
@@ -92,18 +106,17 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
     });
   }
 
-  // ၁၀ စက္ကန့် အပြည့် မီးရောင်ပြပြီး Alarm မြည်မည့် စနစ်
+  // ၁၅ စက္ကန့် အပြည့် Alarm မြည်ပြီး မီးလင်းမည့် စနစ် (၄၅ ကြိမ် x ၃၃၃ms = ၁၅ စက္ကန့်)
   Future<void> startFlashingBeacon() async {
     setState(() {
       isAlerting = true;
     });
 
-    // Android Native Alarm အသံကို စတင်မြည်စေမည်
     try {
       await platform.invokeMethod('startAlarm');
     } catch (_) {}
 
-    for (int i = 0; i < 30; i++) {
+    for (int i = 0; i < 45; i++) {
       if (!mounted) break;
       setState(() {
         if (i % 2 == 0) {
@@ -116,19 +129,19 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
       });
 
       HapticFeedback.heavyImpact();
-      await Future.delayed(const Duration(milliseconds: 330));
+      await Future.delayed(const Duration(milliseconds: 333));
     }
 
-    // အသံ ရပ်တန့်မည်
     try {
       await platform.invokeMethod('stopAlarm');
     } catch (_) {}
   }
 
-  // App ကို အပြီးသတ် သတ်ပစ်မည့် စနစ်
   Future<void> exitAppLikeSwipe({bool flashFirst = false}) async {
     _timer?.cancel();
     _timer = null;
+    _dotTimer?.cancel();
+    _dotTimer = null;
     _batteryStateSubscription?.cancel();
     _batteryStateSubscription = null;
 
@@ -184,13 +197,11 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
           if (response.statusCode == 200) {
             final data = jsonDecode(response.body);
             
-            // Excel မှ Pickup လုပ်လိုက်သောအခါ (မီးလင်း + Alarm ၁၀ စက္ကန့် မြည်ပြီးမှ လုံးဝ သတ်မည်)
             if (data['command'] == 'alarm_and_close') {
               await exitAppLikeSwipe(flashFirst: true);
               return;
             }
             
-            // PC Monitor မှ ✕ (Delete) နှိပ်သောအခါ ချက်ချင်း သတ်မည်
             if (data['command'] == 'close_app') {
               await exitAppLikeSwipe(flashFirst: false);
               return;
@@ -205,7 +216,7 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
             isConnected = true;
             break; 
           }
-        } catch (e) {
+        } catch (_) {
           continue; 
         }
       }
@@ -214,7 +225,7 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
         setState(() { syncStatus = "Connection Lost / Retrying..."; });
       }
       
-    } catch (e) {
+    } catch (_) {
       setState(() { syncStatus = "Error updating data"; });
     }
   }
@@ -222,6 +233,7 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
   @override
   void dispose() {
     _timer?.cancel();
+    _dotTimer?.cancel();
     _batteryStateSubscription?.cancel();
     super.dispose();
   }
@@ -255,7 +267,7 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
                     borderRadius: BorderRadius.circular(30),
                   ),
                   child: Text(
-                    "⚡ PICKUP READY (10s) ⚡",
+                    "⚡ PICKUP READY (15s) ⚡",
                     style: TextStyle(
                       fontSize: 22,
                       fontWeight: FontWeight.bold,
@@ -281,6 +293,9 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
       statusText = "⚡ CHARGING";
     }
 
+    // WAITING FOR ID နောက်တွင် အစက်များ တိုးလာ/လျော့သွားစေခြင်း
+    final waitingString = "WAITING FOR ID${'.' * _dotCount}";
+
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, result) {
@@ -297,14 +312,16 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Text(
-                    assignedId ?? "WAITING FOR ID...",
+                    assignedId ?? waitingString,
                     style: TextStyle(
-                      fontSize: 48,
+                      fontSize: assignedId != null ? 48 : 30,
                       fontWeight: FontWeight.bold,
-                      color: assignedId != null ? Colors.yellowAccent : Colors.white38,
+                      color: assignedId != null ? Colors.yellowAccent : Colors.white60,
+                      letterSpacing: 1.5,
                     ),
+                    textAlign: TextAlign.center,
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 12),
                   Text(deviceName, style: const TextStyle(color: Colors.white70, fontSize: 16)),
                   const SizedBox(height: 24),
                   Text("$batteryLevel%", style: const TextStyle(fontSize: 72, fontWeight: FontWeight.bold, color: Colors.white)),
@@ -322,7 +339,6 @@ class _BatteryMonitorClientState extends State<BatteryMonitorClient> {
                   Text(syncStatus, style: const TextStyle(color: Colors.white30, fontSize: 12)),
                   const SizedBox(height: 40),
 
-                  // EXIT APP ခလုတ်
                   ElevatedButton.icon(
                     onPressed: () => exitAppLikeSwipe(flashFirst: false),
                     icon: const Icon(Icons.power_settings_new, color: Colors.white, size: 24),
